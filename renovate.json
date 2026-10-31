@@ -1,0 +1,41 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits", "helpers:pinGitHubActionDigests"],
+  "ignorePaths": ["**/node_modules/**"],
+  "timezone": "Europe/Berlin",
+  "schedule": ["before 6am on monday"],
+  "rangeStrategy": "bump",
+  "minimumReleaseAge": "3 days",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": null,
+    "automerge": true
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "description": "Runtime dependencies ship to users: 'deps' commits show up in the changelog and trigger a patch release.",
+      "matchDepTypes": ["dependencies"],
+      "semanticCommitType": "deps",
+      "semanticCommitScope": null
+    },
+    {
+      "description": "Node versions (engines, .nvmrc, CI matrix) are a support decision and change together by hand.",
+      "matchDepNames": ["node"],
+      "enabled": false
+    },
+    {
+      "description": "@types/node follows the oldest supported Node major (engines.node), so the typecheck flags APIs only newer runtimes have.",
+      "matchPackageNames": ["@types/node"],
+      "allowedVersions": "22.x"
+    },
+    {
+      "description": "MCP SDK packages are released together.",
+      "matchPackageNames": ["@modelcontextprotocol/**"],
+      "groupName": "MCP SDK"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "name": "hetzner-model-context-protocol",
+  "version": "0.1.0",
+  "description": "MCP server for the Hetzner Cloud API",
+  "mcpName": "io.github.ChristophEnglisch/hetzner-model-context-protocol",
+  "license": "MIT",
+  "author": "Christoph Englisch",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChristophEnglisch/hetzner-model-context-protocol.git"
+  },
+  "homepage": "https://github.com/ChristophEnglisch/hetzner-model-context-protocol#readme",
+  "bugs": {
+    "url": "https://github.com/ChristophEnglisch/hetzner-model-context-protocol/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "hetzner",
+    "hetzner-cloud",
+    "cloud",
+    "infrastructure",
+    "ai"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "hetzner-model-context-protocol": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/index.js', 0o755)\"",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run tests/unit",
+    "test:watch": "vitest tests/unit",
+    "prepublishOnly": "npm run clean && npm run build && npm test",
+    "test:smoke": "npm run build && node tests/smoke/pack-smoke.mjs",
+    "test:all": "npm test && npm run test:smoke",
+    "docs:tools": "npm run build && node scripts/generate-tools-reference.mjs",
+    "docs:check": "npm run build && node scripts/generate-tools-reference.mjs --check",
+    "docs:diagrams": "node scripts/render-diagrams.mjs",
+    "docs:diagrams:check": "node scripts/render-diagrams.mjs --check"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.3",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@types/node": "^22.20.5",
+    "@vitest/coverage-v8": "^5.0.5",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
