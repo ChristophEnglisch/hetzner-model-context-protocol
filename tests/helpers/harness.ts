@@ -1,9 +1,11 @@
 import { Client, type ProgressCallback } from "@modelcontextprotocol/client";
 import { type CallToolResult, InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { expect } from "vitest";
-import { type Config, collectSecrets } from "../../src/config.js";
+import { type Config, collectSecrets, type ToolsetName } from "../../src/config.js";
 import type { HetznerGateway } from "../../src/hetzner/gateway.js";
 import { createLogger, type Logger } from "../../src/logging.js";
+import { createServer } from "../../src/server.js";
+import { TOOLSETS } from "../../src/tools/index.js";
 import type { ToolDefinition } from "../../src/tools/shared.js";
 import { FakeHetzner } from "./fake-hetzner.js";
 import { makeConfig } from "./fakes.js";
@@ -39,8 +41,7 @@ export interface Harness {
 
 /**
  * Builds the server with `build` on top of a FakeHetzner gateway and connects an SDK client over an
- * in-memory transport (01 §9.2). AP-06 adds `startHarness(configOverrides)` with the real
- * `createServer` on top of this function.
+ * in-memory transport (01 §9.2).
  */
 export async function startHarnessWith(
   build: (deps: HarnessDeps) => McpServer,
@@ -87,6 +88,11 @@ export async function startHarnessWith(
   };
 }
 
+/** The real server (`createServer`) on a FakeHetzner gateway (01 §9.2). */
+export function startHarness(configOverrides: Partial<Config> = {}): Promise<Harness> {
+  return startHarnessWith((deps) => createServer(deps), configOverrides);
+}
+
 /** Registers the given tool definitions on an own McpServer (define-tool tests, not via TOOLSETS). */
 export function startToolHarness(
   tools: readonly ToolDefinition[],
@@ -112,4 +118,17 @@ export function logFields(logs: readonly string[], message: string): Record<stri
       (line) =>
         JSON.parse(line.slice(line.indexOf(marker) + marker.length)) as Record<string, unknown>,
     );
+}
+
+/**
+ * Temporarily puts tool definitions into a toolset of the real registry and returns the restore
+ * function. Lets the registry and tools/list tests run against a filled registry while the real
+ * toolsets are still empty; call the restore function in a finally block or afterEach.
+ */
+export function stubToolset(name: ToolsetName, tools: readonly ToolDefinition[]): () => void {
+  const original = TOOLSETS[name];
+  TOOLSETS[name] = tools;
+  return () => {
+    TOOLSETS[name] = original;
+  };
 }
