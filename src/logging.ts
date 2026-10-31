@@ -17,6 +17,8 @@ export interface LoggerOptions {
 }
 
 const SENSITIVE_KEY = /secret|password|token|authorization|credential|user_data/i;
+/** Field names that match SENSITIVE_KEY but hold no secret (exact match). */
+const NON_SECRET_KEYS: ReadonlySet<string> = new Set(["tokenSource"]);
 const MASK = "***";
 
 function maskSecrets(text: string, secrets: readonly string[]): string {
@@ -31,7 +33,7 @@ function serializeFields(fields: Record<string, unknown> | undefined): string {
   if (!fields) return "";
   const safe: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(fields)) {
-    safe[key] = SENSITIVE_KEY.test(key) ? "[REDACTED]" : value;
+    safe[key] = SENSITIVE_KEY.test(key) && !NON_SECRET_KEYS.has(key) ? "[REDACTED]" : value;
   }
   try {
     return ` ${JSON.stringify(safe)}`;

@@ -16,4 +16,23 @@ describe("createLogger", () => {
     expect(lines[0]).toContain("[REDACTED]");
     expect(lines[0]).toContain("bob");
   });
+
+  it("keeps tokenSource visible but still redacts token-like fields", () => {
+    const lines: string[] = [];
+    const logger = createLogger({
+      level: "info",
+      secrets: ["s3cr3t"],
+      write: (l) => lines.push(l),
+    });
+    logger.info("started", {
+      tokenSource: "HETZNER_TOKEN",
+      token: "abc",
+      apiToken: "def",
+      note: "has s3cr3t inside",
+    });
+    expect(lines[0]).toContain('"tokenSource":"HETZNER_TOKEN"');
+    expect(lines[0]).toContain('"token":"[REDACTED]"');
+    expect(lines[0]).toContain('"apiToken":"[REDACTED]"');
+    expect(lines[0]).not.toContain("s3cr3t");
+  });
 });
