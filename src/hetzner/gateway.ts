@@ -1,3 +1,4 @@
+import { assertPathSegment } from "../guards.js";
 import { type Logger, silentLogger } from "../logging.js";
 import { VERSION } from "../version.js";
 import {
@@ -101,35 +102,6 @@ const MAX_IDS_PER_POLL = 50;
 
 // --- path -------------------------------------------------------------------------------------
 
-function hasControlChars(value: string): boolean {
-  for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    if (code < 0x20 || code === 0x7f) return true;
-  }
-  return false;
-}
-
-/**
- * Same rule as `assertPathSegment` (01 §5.7, from the reference). Kept private here because
- * `guards.ts` (AP-05) does not exist yet; AP-05 should replace it with the import.
- */
-function assertStringSegment(value: string): void {
-  if (
-    value.length === 0 ||
-    value.length > 255 ||
-    value === "." ||
-    value === ".." ||
-    value.includes("/") ||
-    value.includes("\\") ||
-    hasControlChars(value)
-  ) {
-    throw new ToolError(
-      "guard",
-      "Invalid value: must be non-empty and must not contain '/', '\\', '..' or control characters.",
-    );
-  }
-}
-
 /** path`/servers/${id}/actions/poweron` — numbers must be safe positive integers, strings pass assertPathSegment and are encodeURIComponent'ed. */
 export function path(strings: TemplateStringsArray, ...values: (number | string)[]): string {
   let out = strings[0] ?? "";
@@ -141,7 +113,7 @@ export function path(strings: TemplateStringsArray, ...values: (number | string)
       }
       segment = String(value);
     } else if (typeof value === "string") {
-      assertStringSegment(value);
+      assertPathSegment(value);
       segment = encodeURIComponent(value);
     } else {
       throw new ToolError("guard", "Invalid id: must be a positive integer.");

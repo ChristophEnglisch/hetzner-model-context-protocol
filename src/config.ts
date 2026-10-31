@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseLabelTerms } from "./labels.js";
 import { LOG_LEVELS, type LogLevel } from "./logging.js";
 
 export const TOOLSET_NAMES = [
@@ -72,14 +73,6 @@ const DEFAULT_IAC_LABELS = "managed-by=terraform,managed_by=terraform";
 const hasBadTokenChars = (value: string): boolean =>
   /\s/.test(value) || [...value].some((ch) => ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f);
 const MAX_MONTHLY_COST = /^\d{1,15}(?:\.\d{1,20})?$/;
-const RESERVED_LABEL_PREFIX = "hetzner.cloud/";
-
-// Label grammar (01 §5.2). Duplicated here until labels.ts exists; see the AP-03 report.
-const LABEL_NAME = "[A-Za-z0-9](?:[A-Za-z0-9._-]{0,61}[A-Za-z0-9])?";
-const LABEL_PREFIX = "[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*";
-const LABEL_KEY = new RegExp(`^(?:(?=.{1,253}/)${LABEL_PREFIX}/)?${LABEL_NAME}$`);
-const LABEL_VALUE = new RegExp(`^${LABEL_NAME}$`);
-
 const blankToUndefined = (value: unknown): unknown => {
   if (typeof value !== "string") return value;
   const trimmed = value.trim();
@@ -113,48 +106,6 @@ function isLoopbackHost(hostname: string): boolean {
     hostname === "[::1]" ||
     /^127(?:\.\d{1,3}){3}$/.test(hostname)
   );
-}
-
-function parseLabelTerms(
-  raw: string,
-  varName: string,
-  uniqueKeys: boolean,
-): { terms: LabelTerm[]; issues: string[] } {
-  const terms: LabelTerm[] = [];
-  const issues: string[] = [];
-  const seen = new Set<string>();
-  for (const part of raw.split(",")) {
-    const term = part.trim();
-    if (term === "") continue;
-    const eq = term.indexOf("=");
-    const key = eq < 0 ? "" : term.slice(0, eq).trim();
-    const value = eq < 0 ? "" : term.slice(eq + 1).trim();
-    if (eq < 0 || key === "" || value === "" || value.includes("=")) {
-      issues.push(
-        `${varName}: '${term}' must have the form key=value (only equality, values must not be empty)`,
-      );
-      continue;
-    }
-    if (key.startsWith(RESERVED_LABEL_PREFIX)) {
-      issues.push(`${varName}: the prefix 'hetzner.cloud/' is reserved by Hetzner`);
-      continue;
-    }
-    if (!LABEL_KEY.test(key)) {
-      issues.push(`${varName}: invalid label key '${key}'`);
-      continue;
-    }
-    if (!LABEL_VALUE.test(value)) {
-      issues.push(`${varName}: invalid label value '${value}'`);
-      continue;
-    }
-    if (uniqueKeys && seen.has(key)) {
-      issues.push(`${varName}: key '${key}' appears twice`);
-      continue;
-    }
-    seen.add(key);
-    terms.push({ key, value });
-  }
-  return { terms, issues };
 }
 
 function parseIntInRange(
