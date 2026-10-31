@@ -1,11 +1,27 @@
-// Toolset core, part 1 (02-tool-specs/core.md): list, get, update, power, force power, protection.
-// server_create/delete/rebuild/change_type follow in AP-14 and use the exports of this file.
+// Toolset core (02-tool-specs/core.md): list, get, update, power, force power, protection (AP-12) and
+// the server lifecycle create, delete, rebuild, change_type (AP-14). Lifecycle previews are verbatim
+// from 03 §2.7, their cost lines come from src/pricing/estimate.ts (03 §2.6).
 
 import { z } from "zod";
-import { hasControlChars, keepScopeLabels } from "../guards.js";
+import {
+  type GuardedResource,
+  hasControlChars,
+  keepScopeLabels,
+  withScopeLabels,
+} from "../guards.js";
 import { ToolError } from "../hetzner/errors.js";
 import { path } from "../hetzner/gateway.js";
-import type { HetznerAction, HetznerServer } from "../hetzner/types.js";
+import type { HetznerAction, HetznerServer, Labels } from "../hetzner/types.js";
+import { formatTerms } from "../labels.js";
+import {
+  loadPricing,
+  remainingAfterDelete,
+  serverChangeTypeCost,
+  serverChangeTypeMonthly,
+  serverCreateCost,
+  serverCreateMonthly,
+  serverDeleteSavings,
+} from "../pricing/estimate.js";
 import { labelsOut, locationRefOut, protectionOut } from "./projections.js";
 import {
   type CallContext,
@@ -14,6 +30,8 @@ import {
   idField,
   labelSelectorField,
   labelsField,
+  nameOrIdField,
+  newLabelsField,
   pageOf,
   paginationShape,
   quoteName,
@@ -476,7 +494,340 @@ const serverProtectionSet = defineTool({
   },
 });
 
-/** Toolset core (part 1; AP-14 adds create, delete, rebuild and change_type). */
+// --- server lifecycle (AP-14) -------------------------------------------------------------------
+
+/** Hetzner limit for cloud-init user data (SPEC: "limited to 32KiB"), counted in UTF-8 bytes. */
+const USER_DATA_MAX_BYTES = 32_768;
+const utf8Bytes = (text: string): number => Buffer.byteLength(text, "utf8");
+
+const userDataField = (describe: string) =>
+  z
+    .string()
+    .refine((v) => utf8Bytes(v) <= USER_DATA_MAX_BYTES, "must be at most 32 KiB (UTF-8 bytes)")
+    .optional()
+    .describe(describe);
+
+/** 01 §7.1: the fixed sentence when Hetzner returned a root password that was discarded. */
+const ROOT_PASSWORD_DISCARDED =
+  " Hetzner returned a root password; it was discarded and cannot be retrieved. Log in with the SSH key.";
+
+/**
+ * 01 §7.1 / 05 K-22: a root password in a response is never read further, returned or logged. Returns
+ * the summary suffix (empty if Hetzner sent none).
+ */
+function discardRootPassword(
+  response: { root_password?: unknown },
+  tool: string,
+  ctx: CallContext,
+): string {
+  if (typeof response.root_password !== "string") return "";
+  ctx.logger.warn("root_password_discarded", { tool });
+  return ROOT_PASSWORD_DISCARDED;
+}
+
+/** 01 §5.5: `{protection}` of 03 §2.7 (sentence plus space, or empty). */
+const protectionNotice = (active: boolean, id: number, kind: "delete" | "rebuild"): string =>
+  active
+    ? `Hetzner will refuse this: server ${id} has ${kind} protection enabled. Disable it first with server_protection_set. `
+    : "";
+
+const userDataPart = (userData: string | undefined): string =>
+  userData === undefined ? "" : `, with cloud-init user data (${utf8Bytes(userData)} bytes)`;
+
+const serverIdOutput = z.object({ server_id: z.number().int().describe("ID of the server.") });
+
+/** Only the labels are needed from attached resources (02 core, server_create target). */
+interface Labelled {
+  id: number;
+  labels: Labels;
+}
+
+const serverCreate = defineTool({
+  name: "server_create",
+  title: "Create server",
+  description:
+    "Creates a new server from a server type, image and location, injecting the given SSH keys; root passwords are never created or returned, so at least one SSH key is required. The server starts after creation by default and bills from creation until it is deleted; the confirmation preview shows the estimated cost. It returns the preliminary server and the creation actions, not cloud-init user data.",
+  kind: "write",
+  costs: true,
+  creates: true,
+  actions: true,
+  input: z.object({
+    name: hostnameField,
+    server_type: nameOrIdField("server type (see catalog_server_types)"),
+    image: nameOrIdField("image (see catalog_images)"),
+    location: z
+      .string()
+      .min(1)
+      .max(64)
+      .refine((v) => !hasControlChars(v), "must not contain control characters")
+      .describe(
+        "Name of the location, e.g. 'fsn1' (see catalog_locations). Required because prices differ per location.",
+      ),
+    ssh_keys: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(255)
+          .refine((v) => !hasControlChars(v), "must not contain control characters"),
+      )
+      .min(1)
+      .describe(
+        "Names of existing SSH keys to inject into the server (see ssh_key_list). At least one is required because root passwords are not supported.",
+      ),
+    user_data: userDataField(
+      "Cloud-init user data (at most 32 KiB). It is sent to Hetzner but never shown in results, previews or logs.",
+    ),
+    labels: newLabelsField.optional(),
+    public_net: z
+      .object({
+        enable_ipv4: z.boolean().optional().describe("Create a new public IPv4 (default true)."),
+        enable_ipv6: z.boolean().optional().describe("Create a new public IPv6 (default true)."),
+      })
+      .optional()
+      .describe(
+        "Public network: set enable_ipv4 or enable_ipv6 to false to create the server without that public IP (a new Primary IP costs money; see the preview). At least one must stay enabled.",
+      ),
+    start_after_create: z
+      .boolean()
+      .default(true)
+      .describe("Start the server after creation (default true)."),
+    volumes: z
+      .array(idField("volume"))
+      .optional()
+      .describe(
+        "IDs of existing volumes to attach at creation. They must be in the same location.",
+      ),
+    automount: z.boolean().optional().describe("Mount the attached volumes automatically."),
+    firewalls: z
+      .array(idField("firewall"))
+      .optional()
+      .describe("IDs of existing firewalls to apply to the public network interface at creation."),
+  }),
+  output: serverOutput,
+  // value = the labels of the new server (scope labels added; a conflicting scope label fails here,
+  // before preview and confirmation).
+  target: async (args, ctx) => {
+    if (args.public_net?.enable_ipv4 === false && args.public_net?.enable_ipv6 === false) {
+      throw new ToolError(
+        "bad_request",
+        "Keep at least one of public_net.enable_ipv4 or enable_ipv6 enabled; a server without a public IP is not reachable with the tools of this server.",
+      );
+    }
+    const labels = withScopeLabels(ctx.config, args.labels);
+    if (ctx.config.labelScope.length === 0 && ctx.config.iacPolicy === "off") {
+      return { value: labels, resources: [] };
+    }
+    // Existing resources the call changes (01 §5.3); a 404 is not caught (4.3: not_found).
+    const load = async (type: "volume" | "firewall", id: number): Promise<GuardedResource> => {
+      const raw = await ctx.gateway.request<Record<string, Labelled>>(
+        "GET",
+        type === "volume" ? path`/volumes/${id}` : path`/firewalls/${id}`,
+        { signal: ctx.signal },
+      );
+      return { type, id, labels: raw[type]?.labels ?? {} };
+    };
+    const resources = await Promise.all([
+      ...(args.volumes ?? []).map((id) => load("volume", id)),
+      ...(args.firewalls ?? []).map((id) => load("firewall", id)),
+    ]);
+    return { value: labels, resources };
+  },
+  preview: async (args, ctx) => {
+    const parts = [
+      `type ${quoteName(args.server_type)}`,
+      `location ${quoteName(args.location)}`,
+      `image ${quoteName(args.image)}`,
+      `${args.ssh_keys.length} SSH key(s)`,
+    ];
+    if (args.volumes?.length) parts.push(`${args.volumes.length} volume(s)`);
+    if (args.firewalls?.length) parts.push(`${args.firewalls.length} firewall(s)`);
+    let details = parts.join(", ") + userDataPart(args.user_data);
+    if (args.public_net?.enable_ipv4 === false) details += ", without public IPv4";
+    if (args.public_net?.enable_ipv6 === false) details += ", without public IPv6";
+    if (args.start_after_create === false) details += ", not started after creation";
+    const scope =
+      ctx.config.labelScope.length > 0
+        ? ` It gets the labels ${formatTerms(ctx.config.labelScope)}.`
+        : "";
+    const cost = serverCreateCost(await loadPricing(ctx), args);
+    return `create server ${quoteName(args.name)} (${details}).${scope} ${cost}`;
+  },
+  monthlyCost: async (args, ctx) => serverCreateMonthly(await loadPricing(ctx), args),
+  handler: async (args, ctx, labels) => {
+    const raw = await ctx.gateway.request<{
+      server: HetznerServer;
+      action: HetznerAction;
+      next_actions?: HetznerAction[];
+      root_password?: unknown;
+    }>("POST", path`/servers`, {
+      // Field names as in the SPEC; never datacenter, root_password or Primary IP IDs (05 K-14).
+      body: {
+        name: args.name,
+        server_type: args.server_type,
+        image: args.image,
+        location: args.location,
+        ssh_keys: args.ssh_keys,
+        start_after_create: args.start_after_create,
+        ...(args.user_data !== undefined && { user_data: args.user_data }),
+        labels,
+        ...(args.volumes !== undefined && { volumes: args.volumes }),
+        ...(args.automount !== undefined && { automount: args.automount }),
+        ...(args.firewalls !== undefined && {
+          firewalls: args.firewalls.map((id) => ({ firewall: id })),
+        }),
+        ...(args.public_net !== undefined && {
+          public_net: {
+            ...(args.public_net.enable_ipv4 !== undefined && {
+              enable_ipv4: args.public_net.enable_ipv4,
+            }),
+            ...(args.public_net.enable_ipv6 !== undefined && {
+              enable_ipv6: args.public_net.enable_ipv6,
+            }),
+          },
+        }),
+      },
+      signal: ctx.signal,
+    });
+    const discarded = discardRootPassword(raw, "server_create", ctx);
+    const next = raw.next_actions ?? [];
+    const followUp = next.length > 0 ? `, plus ${next.length} follow-up action(s)` : "";
+    return {
+      data: { server: toServerOut(raw.server) },
+      summary: `Requested creation of server ${raw.server.id} (action ${raw.action.id}${followUp}). Final action status is in 'actions'.${discarded}`,
+      actions: [raw.action, ...next],
+    };
+  },
+});
+
+const serverDelete = defineTool({
+  name: "server_delete",
+  title: "Delete server",
+  description:
+    "Permanently deletes a server and all data on its disks; this cannot be undone. Attached volumes and floating IPs are detached but not deleted and keep billing; a Primary IP is deleted only if it has auto-deletion enabled. Requires confirmation; the preview shows the cost impact.",
+  kind: "destructive",
+  actions: true,
+  input: z.object({ id: serverIdField }),
+  output: serverIdOutput,
+  target: async (args, ctx) => loadServerTarget(args.id, ctx),
+  preview: async (args, ctx, server) => {
+    const protection = protectionNotice(server.protection.delete, args.id, "delete");
+    const savings = serverDeleteSavings(await loadPricing(ctx), server);
+    return `${protection}delete server ${quoteName(server.name)} (ID ${args.id}) permanently, including its disk and its backup images. ${savings} ${remainingAfterDelete(server)}`;
+  },
+  handler: async (args, ctx) => {
+    const raw = await ctx.gateway.request<{ action: HetznerAction }>(
+      "DELETE",
+      path`/servers/${args.id}`,
+      { signal: ctx.signal },
+    );
+    return {
+      data: { server_id: args.id },
+      summary: `Requested deletion of server ${args.id} (action ${raw.action.id}). Final action status is in 'actions'.`,
+      actions: [raw.action],
+    };
+  },
+});
+
+/**
+ * GATED BY IT-05 (05 K-23, OWNER O-1): built and registered for tests, but released in 1.0 only after
+ * a green IT-05 (are the SSH keys injected again after a rebuild? OP-17). If IT-05 fails, this tool is
+ * removed before the release.
+ */
+const serverRebuild = defineTool({
+  name: "server_rebuild",
+  title: "Rebuild server",
+  description:
+    "Overwrites a server's disk with an image (a fresh system image, a snapshot or a backup), destroying all data on the server; the server is powered off first. Root passwords are never returned. Requires confirmation.",
+  kind: "destructive",
+  actions: true,
+  input: z.object({
+    id: serverIdField,
+    image: nameOrIdField("image to rebuild from (see catalog_images)"),
+    user_data: userDataField(
+      "Cloud-init user data (at most 32 KiB). If omitted, Hetzner reuses the previous value. It is never shown in results, previews or logs.",
+    ),
+  }),
+  output: serverIdOutput,
+  target: async (args, ctx) => loadServerTarget(args.id, ctx),
+  preview: (args, _ctx, server) => {
+    const protection = protectionNotice(server.protection.rebuild, args.id, "rebuild");
+    return `${protection}rebuild server ${quoteName(server.name)} (ID ${args.id}) from image ${quoteName(args.image)}${userDataPart(args.user_data)}. This destroys all data on its disk; Hetzner powers the server off first. Create a snapshot first (snapshot_create) if any data on it is still needed. Hetzner does not document whether the SSH keys of the server are injected again; no root password will be shown, so the server may become unreachable. No price change (the server type stays the same).`;
+  },
+  handler: async (args, ctx) => {
+    const raw = await ctx.gateway.request<{ action: HetznerAction; root_password?: unknown }>(
+      "POST",
+      path`/servers/${args.id}/actions/rebuild`,
+      {
+        body: {
+          image: args.image,
+          ...(args.user_data !== undefined && { user_data: args.user_data }),
+        },
+        signal: ctx.signal,
+      },
+    );
+    const discarded = discardRootPassword(raw, "server_rebuild", ctx);
+    return {
+      data: { server_id: args.id },
+      summary: `Requested rebuild of server ${args.id} (action ${raw.action.id}). Final action status is in 'actions'.${discarded}`,
+      actions: [raw.action],
+    };
+  },
+});
+
+const serverChangeType = defineTool({
+  name: "server_change_type",
+  title: "Change server type",
+  description:
+    "Changes the server type (cores, RAM, and optionally disk size) of a server that is powered off; Hetzner copies the disk and starts the server again. With upgrade_disk true the disk is enlarged and the server can never be moved to a smaller type again. Requires confirmation; the preview shows the price change.",
+  kind: "destructive",
+  costs: true, // 05 K-28: under HETZNER_MCP_ALLOW_COSTS and the cost limit
+  actions: true,
+  input: z.object({
+    id: serverIdField,
+    server_type: nameOrIdField("new server type (see catalog_server_types)").describe(
+      "Name or ID of the server type to change to (see catalog_server_types). It needs the same storage type and an equal or larger disk.",
+    ),
+    upgrade_disk: z
+      .boolean()
+      .default(false)
+      .describe(
+        "If true, the disk is enlarged to the new type's size and the server can never be downgraded again. If false (default), only cores and RAM change and a later downgrade stays possible.",
+      ),
+  }),
+  output: serverIdOutput,
+  target: async (args, ctx) => loadServerTarget(args.id, ctx),
+  preview: async (args, ctx, server) => {
+    const disk = args.upgrade_disk
+      ? "upgrading the disk (the server can then no longer be downgraded to a type with a smaller disk)"
+      : "keeping the disk size (a later downgrade stays possible)";
+    const running =
+      server.status !== "off"
+        ? ` The server is currently ${server.status}; Hetzner will refuse the change until it is off (use server_power with mode shutdown first).`
+        : "";
+    const cost = serverChangeTypeCost(await loadPricing(ctx), server, args.server_type);
+    return `change server ${quoteName(server.name)} (ID ${args.id}) from type ${quoteName(server.server_type.name)} to ${quoteName(args.server_type)}, ${disk}. The server must be powered off; Hetzner copies its disk and starts it again.${running} ${cost}`;
+  },
+  monthlyCost: async (args, ctx, server) =>
+    serverChangeTypeMonthly(await loadPricing(ctx), server, args.server_type),
+  handler: async (args, ctx) => {
+    const raw = await ctx.gateway.request<{ action: HetznerAction }>(
+      "POST",
+      path`/servers/${args.id}/actions/change_type`,
+      {
+        body: { server_type: args.server_type, upgrade_disk: args.upgrade_disk },
+        signal: ctx.signal,
+      },
+    );
+    return {
+      data: { server_id: args.id },
+      summary: `Requested type change for server ${args.id} (action ${raw.action.id}). Final action status is in 'actions'.`,
+      actions: [raw.action],
+    };
+  },
+});
+
+/** Toolset core (10 tools). server_rebuild is gated by IT-05 (see above). */
 export const serverTools: readonly ToolDefinition[] = [
   serverList,
   serverGet,
@@ -484,4 +835,8 @@ export const serverTools: readonly ToolDefinition[] = [
   serverPower,
   serverPowerForce,
   serverProtectionSet,
+  serverCreate,
+  serverDelete,
+  serverRebuild,
+  serverChangeType,
 ];
