@@ -1,6 +1,6 @@
 {
   "name": "hetzner-model-context-protocol",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "MCP server for the Hetzner Cloud API",
   "mcpName": "io.github.ChristophEnglisch/hetzner-model-context-protocol",
   "license": "MIT",
