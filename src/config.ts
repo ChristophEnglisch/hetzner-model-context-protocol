@@ -134,9 +134,9 @@ function parseToolsets(raw: string | undefined, issues: string[]): Set<ToolsetNa
           .map((item) => item.trim())
           .filter((item) => item.length > 0);
   if (names.length === 0) return new Set(DEFAULT_TOOLSETS);
-  if (names.includes("all")) return new Set(TOOLSET_NAMES);
   const result = new Set<ToolsetName>();
   for (const name of names) {
+    if (name === "all") continue;
     if ((TOOLSET_NAMES as readonly string[]).includes(name)) {
       result.add(name as ToolsetName);
     } else {
@@ -145,7 +145,7 @@ function parseToolsets(raw: string | undefined, issues: string[]): Set<ToolsetNa
       );
     }
   }
-  return result;
+  return names.includes("all") ? new Set(TOOLSET_NAMES) : result;
 }
 
 function parseGuardPorts(raw: string | undefined, issues: string[]): number[] {

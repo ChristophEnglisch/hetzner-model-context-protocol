@@ -81,6 +81,12 @@ describe("loadConfig", () => {
     );
   });
 
+  it("rejects unknown toolsets next to 'all'", () => {
+    expect(issuesOf({ ...base, HETZNER_MCP_TOOLSETS: "all,foo" })).toContain(
+      "HETZNER_MCP_TOOLSETS: unknown toolset 'foo' (valid: core, info, actions, ssh_keys, firewalls, storage, all)",
+    );
+  });
+
   it("parses HETZNER_MCP_LABEL_SCOPE into AND terms", () => {
     const config = loadConfig({ ...base, HETZNER_MCP_LABEL_SCOPE: "a=b, c=d" });
     expect(config.labelScope).toEqual([
