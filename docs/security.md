@@ -113,7 +113,7 @@ Known limits:
 - **Narrowing to someone else's address.** If the rules still allow the port from some address, there is no warning, even if that address is not yours (for example from `0.0.0.0/0` to `203.0.113.7/32`). The diff shows the change, the server cannot know your address. The same holds for a prefix that has become too narrow: there is no containment check of address ranges.
 - **Other firewalls on the same server.** How several firewalls on one server act together is not documented in the sources we used, and the check looks at one firewall. The warning text says that the servers lose access on that port unless another firewall on them allows it.
 - **Outbound rules.** They are not checked. What an existing `out` rule does to other outbound traffic is not documented in the sources we used.
-- **A TCP or UDP rule without a port.** The check assumes it means all ports. Hetzner stores such a rule with port 'any' (verified 2026-10-31); that it opens all ports is not yet verified (open point IT-F1, part B). If the assumption is wrong, a warning may be missing, or appear unnecessarily.
+- **A TCP or UDP rule without a port.** The check assumes it means all ports. Hetzner stores such a rule with port 'any' and it opens all ports (verified 2026-10-31 for TCP; UDP was not checked).
 - **SSH on a non-standard port.** Only the ports in `HETZNER_MCP_FIREWALL_GUARD_PORTS` are watched. Add yours.
 - **A firewall that is not applied yet.** If it is applied to no server, the warning is replaced by a note that it is not applied. The lock-out happens later, when the firewall is applied: `firewall_apply_to_resources` is a separate step.
 - **Private networks.** Whether firewalls act on private networks is not documented in the sources we used; the warning speaks of inbound TCP without naming a network.
@@ -218,7 +218,6 @@ The controls above narrow what the server does, but some limits are by design or
 | `HETZNER_MCP_REQUIRE_CONFIRMATION=false` removes both confirmations at once. | Do not use it for interactive work. |
 | Firewall targets given as label selectors are not checked for IaC markers. | Name servers explicitly, or accept the gap. See [Label scope](#label-scope-and-infrastructure-as-code-check). |
 | The lock-out warning has blind spots. | See [Limits of the lock-out warning](#limits-of-the-lock-out-warning). |
-| `server_rebuild` is not released: it is built and registered, but it stays gated until a live check (IT-05) confirms that SSH keys are injected again after a rebuild. The API request has no `ssh_keys` field, and a rebuilt server could become unreachable because no root password is ever shown. | Do not rely on `server_rebuild` before that check; take a snapshot first (`snapshot_create`). |
 | The label scope and IaC check read labels before they write. | Accept the small window, or restrict who else may change labels. |
 | Some MCP clients, such as Claude Desktop, store the `env` block, including the token, in a plain-text config file. | Use the client's variable expansion or a wrapper script that reads the token from a keychain; see [clients](clients.md#how-to-handle-the-token). |
 | Prompt injection through Hetzner data can be reduced, but not prevented. | Keep the blast-radius limits and the human approval step; see [Prompt injection](#prompt-injection). |

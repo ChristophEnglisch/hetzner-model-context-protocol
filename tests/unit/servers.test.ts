@@ -613,7 +613,7 @@ describe("server_create", () => {
       start_after_create: false,
     });
     expect(textOf(res)).toContain(
-      'create server "web-1" (type "cpx22", location "fsn1", image "ubuntu-24.04", SSH keys "a", "b", 1 volume(s), 2 firewall(s), with cloud-init user data (14 bytes), without public IPv4, not started after creation). Estimated cost: unknown (Hetzner lists no price for a Primary IPv6 in location "fsn1").',
+      'create server "web-1" (type "cpx22", location "fsn1", image "ubuntu-24.04", SSH keys "a", "b", 1 volume(s), 2 firewall(s), with cloud-init user data (14 bytes), without public IPv4, not started after creation). Estimated cost: 1.00 EUR/month net (1.19 gross) = server 1.00 EUR/month net (1.19 gross). IPv6: no charge listed by Hetzner. Server hourly price: 1.0000 EUR/hour net (1.1900 gross).',
     );
   });
 
@@ -883,6 +883,28 @@ describe("server_create", () => {
     expect(posts(t2, "/servers")).toBe(1);
   });
 
+  it("server_create with default public_net passes the cost limit without an IPv6 price (E-T7)", async () => {
+    // The fixture has no ipv6 entry, like the live /pricing: IPv6 counts 0 (03 §2.4, 06 OE-48).
+    const defaultNet = { ...CREATE, public_net: undefined, confirm: true };
+    const t = await start({ maxMonthlyCost: "2.00" });
+    t.fake.on("GET", "/pricing", pricingReply());
+    createRoutes(t);
+    const res = await t.call("server_create", defaultNet);
+    expect(res.isError).toBeFalsy();
+    expect(posts(t, "/servers")).toBe(1);
+    await t.close();
+    h = undefined;
+
+    const t2 = await start({ maxMonthlyCost: "1.99" });
+    t2.fake.on("GET", "/pricing", pricingReply());
+    const res2 = await t2.call("server_create", defaultNet);
+    expect(outcomeOf(t2)).toBe("guard");
+    expect(textOf(res2)).toMatch(
+      /^Cost limit exceeded: this call adds an estimated 2\.00 EUR\/month net/,
+    );
+    expect(posts(t2, "/servers")).toBe(0);
+  });
+
   it("server_create maps resource_limit_exceeded", async () => {
     const t = await start();
     t.fake.on(
@@ -1036,13 +1058,13 @@ describe("server_rebuild", () => {
       )
       .on("GET", "/actions", ok({ actions: [action(13, "success")] }));
 
-  it("server_rebuild previews data loss before acting", async () => {
+  it("server_rebuild previews data loss before acting (E-T8)", async () => {
     const t = await start();
     t.fake.on("GET", "/servers/{id}", serverReply({ name: "web-1" }));
     const res = await t.call("server_rebuild", { id: 42, image: "ubuntu-24.04" });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toBe(
-      'Confirmation required. This would: rebuild server "web-1" (ID 42) from image "ubuntu-24.04". This destroys all data on its disk; Hetzner powers the server off first. Create a snapshot first (snapshot_create) if any data on it is still needed. Hetzner does not document whether the SSH keys of the server are injected again; no root password will be shown, so the server may become unreachable. No price change (the server type stays the same). Nothing was changed. Ask the user for approval, then call this tool again with confirm: true.',
+      'Confirmation required. This would: rebuild server "web-1" (ID 42) from image "ubuntu-24.04". This destroys all data on its disk; Hetzner powers the server off first. Create a snapshot first (snapshot_create) if any data on it is still needed. The SSH keys the server was created with are injected again (verified); no root password is shown. No price change (the server type stays the same). Nothing was changed. Ask the user for approval, then call this tool again with confirm: true.',
     );
     expect(posts(t, "/servers/{id}/actions/rebuild")).toBe(0);
   });

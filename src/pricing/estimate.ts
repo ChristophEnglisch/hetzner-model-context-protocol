@@ -95,10 +95,20 @@ export interface ServerCreateArgs {
   public_net?: { enable_ipv4?: boolean; enable_ipv6?: boolean }; // 1.0 offers no Primary IP IDs (05 K-14)
 }
 
+/** 2.4: Hetzner does not charge Primary IPv6, so /pricing has no ipv6 entry; that alone means 0 (06 OE-48). */
+const IPV6_NOT_LISTED = "IPv6: no charge listed by Hetzner.";
+const listsIpv6 = (p: HetznerPricing): boolean => p.primary_ips.some((e) => e.type === "ipv6");
+
 function serverCreateCalc(
   p: HetznerPricing | undefined,
   a: ServerCreateArgs,
-): Calc<{ server: { hourly: Money; monthly: Money }; ip4?: Money; ip6?: Money; total: Money }> {
+): Calc<{
+  server: { hourly: Money; monthly: Money };
+  ip4?: Money;
+  ip6?: Money;
+  ip6Unlisted: boolean;
+  total: Money;
+}> {
   if (!p) return UNAVAILABLE;
   const server = serverTypePrice(p, a.server_type, a.location);
   if (!server) return noServerPrice(a.server_type, a.location);
@@ -114,16 +124,21 @@ function serverCreateCalc(
     }
     total = addMoney(total, ip4);
   }
+  let ip6Unlisted = false;
   if (a.public_net?.enable_ipv6 !== false) {
-    ip6 = primaryIpPrice(p, "ipv6", a.location)?.monthly;
-    if (!ip6) {
-      return unknown(
-        `Hetzner lists no price for a Primary IPv6 in location ${quoteName(a.location)}`,
-      );
+    if (!listsIpv6(p)) {
+      ip6Unlisted = true; // IP6 = 0: the total stays, the line says why
+    } else {
+      ip6 = primaryIpPrice(p, "ipv6", a.location)?.monthly;
+      if (!ip6) {
+        return unknown(
+          `Hetzner lists no price for a Primary IPv6 in location ${quoteName(a.location)}`,
+        );
+      }
+      total = addMoney(total, ip6);
     }
-    total = addMoney(total, ip6);
   }
-  return { kind: "ok", server, total, ...(ip4 && { ip4 }), ...(ip6 && { ip6 }) };
+  return { kind: "ok", server, total, ip6Unlisted, ...(ip4 && { ip4 }), ...(ip6 && { ip6 }) };
 }
 
 function serverDeleteCalc(
@@ -222,7 +237,8 @@ export function serverCreateCost(p: HetznerPricing | undefined, a: ServerCreateA
   if (c.ip4) parts.push(`new Primary IPv4 ${month(c.ip4, p)}`);
   if (c.ip6) parts.push(`new Primary IPv6 ${month(c.ip6, p)}`);
   const hourly = formatMoney(c.server.hourly, p.currency, "hour");
-  return `Estimated cost: ${month(c.total, p)} = ${parts.join(" + ")}. Server hourly price: ${hourly}.`;
+  const ip6Note = c.ip6Unlisted ? ` ${IPV6_NOT_LISTED}` : "";
+  return `Estimated cost: ${month(c.total, p)} = ${parts.join(" + ")}.${ip6Note} Server hourly price: ${hourly}.`;
 }
 
 export function serverDeleteSavings(p: HetznerPricing | undefined, s: ServerLike): string {

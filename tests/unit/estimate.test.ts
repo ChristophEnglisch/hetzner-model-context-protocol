@@ -49,6 +49,12 @@ const withIpv6 = (): HetznerPricing => {
   const p = P0();
   return { ...p, primary_ips: [...p.primary_ips, zeroIpv6] };
 };
+/** E-3a: P0 + an ipv6 entry that lists another location only. */
+const withIpv6In = (location: string): HetznerPricing => {
+  const p = P0();
+  const prices = zeroIpv6.prices.map((price) => ({ ...price, location }));
+  return { ...p, primary_ips: [...p.primary_ips, { ...zeroIpv6, prices }] };
+};
 /** E-13: P0 + server_types[1] = cpx32 at 2.5000 / 2.9750 in fsn1. */
 const withCpx32 = (): HetznerPricing => {
   const p = P0();
@@ -80,6 +86,11 @@ const server = (overrides: Partial<ServerLike> = {}): ServerLike => ({
 const E1_ARGS = { server_type: "cpx22", location: "fsn1", public_net: { enable_ipv6: false } };
 const E1_LINE =
   "Estimated cost: 2.00 EUR/month net (2.38 gross) = server 1.00 EUR/month net (1.19 gross) + new Primary IPv4 1.00 EUR/month net (1.19 gross). Server hourly price: 1.0000 EUR/hour net (1.1900 gross).";
+/** E-3: P0 has no ipv6 entry, like the live /pricing (06 OE-48): IPv6 counts 0 and gets its own sentence. */
+const E3_ARGS = { server_type: "cpx22", location: "fsn1" };
+const E3_LINE =
+  "Estimated cost: 2.00 EUR/month net (2.38 gross) = server 1.00 EUR/month net (1.19 gross) + new Primary IPv4 1.00 EUR/month net (1.19 gross). IPv6: no charge listed by Hetzner. Server hourly price: 1.0000 EUR/hour net (1.1900 gross).";
+const E3B_ARGS = { ...E3_ARGS, public_net: { enable_ipv4: false } };
 
 describe("server_create", () => {
   it("server_create with new IPv4, IPv6 disabled", () => {
@@ -91,8 +102,18 @@ describe("server_create", () => {
   });
 
   it("server_create with default public_net and no IPv6 price", () => {
-    expect(serverCreateCost(P0(), { server_type: "cpx22", location: "fsn1" })).toBe(
+    expect(serverCreateCost(P0(), E3_ARGS)).toBe(E3_LINE);
+  });
+
+  it("server_create with an IPv6 entry but no price for the location", () => {
+    expect(serverCreateCost(withIpv6In("nbg1"), E3_ARGS)).toBe(
       'Estimated cost: unknown (Hetzner lists no price for a Primary IPv6 in location "fsn1").',
+    );
+  });
+
+  it("server_create without public IPv4 and no IPv6 price", () => {
+    expect(serverCreateCost(P0(), E3B_ARGS)).toBe(
+      "Estimated cost: 1.00 EUR/month net (1.19 gross) = server 1.00 EUR/month net (1.19 gross). IPv6: no charge listed by Hetzner. Server hourly price: 1.0000 EUR/hour net (1.1900 gross).",
     );
   });
 
@@ -284,6 +305,8 @@ describe("amount functions (03 §2.6a)", () => {
     // Each pair: the line and the amount come from the same internal calculation.
     const cases: [string, MonthlyCost, string][] = [
       [serverCreateCost(P0(), E1_ARGS), serverCreateMonthly(P0(), E1_ARGS), "2.00"],
+      [serverCreateCost(P0(), E3_ARGS), serverCreateMonthly(P0(), E3_ARGS), "2.00"],
+      [serverCreateCost(P0(), E3B_ARGS), serverCreateMonthly(P0(), E3B_ARGS), "1.00"],
       [
         serverCreateCost(withIpv6(), { ...E1_ARGS, public_net: { enable_ipv4: false } }),
         serverCreateMonthly(withIpv6(), { ...E1_ARGS, public_net: { enable_ipv4: false } }),
@@ -317,9 +340,12 @@ describe("amount functions (03 §2.6a)", () => {
   });
 
   it("amount functions report missing prices as unknown", () => {
-    expect(serverCreateMonthly(P0(), { server_type: "cpx22", location: "fsn1" })).toEqual({
-      kind: "unknown",
-    });
+    expect(serverCreateMonthly(withIpv6In("nbg1"), E3_ARGS)).toEqual({ kind: "unknown" });
+    // a missing IPv4 price stays unknown; only a missing ipv6 entry counts 0 (06 OE-48)
+    expect(serverCreateMonthly(P0({ primary_ips: [] }), E3_ARGS)).toEqual({ kind: "unknown" });
+    expect(serverCreateCost(P0({ primary_ips: [] }), E3_ARGS)).toBe(
+      'Estimated cost: unknown (Hetzner lists no price for a Primary IPv4 in location "fsn1").',
+    );
     expect(serverCreateMonthly(P0(), { ...E1_ARGS, location: "nbg1" })).toEqual({
       kind: "unknown",
     });

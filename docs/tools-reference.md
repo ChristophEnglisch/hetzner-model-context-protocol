@@ -17,7 +17,6 @@ Conventions:
 - Tools that trigger Hetzner actions take an optional `wait` parameter (default `true`) and return the actions in `actions`. The server polls for up to `HETZNER_MCP_ACTION_WAIT_MS` and sends progress notifications if the client asked for them; with `wait: false`, or when the time is up, the actions are reported as `running` and `action_get` follows up.
 - List tools are paginated with `page` and `per_page` and return `{ items, page, per_page, next_page, total_entries }`.
 - With `HETZNER_MCP_LABEL_SCOPE` set, write tools only touch resources that carry every scope label, and new resources get the scope labels automatically.
-- `server_rebuild` is marked "gated / not released": it is built and registered, but stays unreleased until the live check IT-05 confirms that SSH keys are injected again after a rebuild.
 - Results carry a short neutral summary in `content` and the data in `structuredContent`. Errors are returned with `isError: true`.
 
 ## Overview
@@ -32,7 +31,7 @@ Conventions:
 | `core` | [`server_protection_set`](#set-server-protection) | destructive | Turns delete and rebuild protection of a server on or off together (Hetzner currently requires both to have the same value). |
 | `core` | [`server_create`](#create-server) | write (can incur costs) | Creates a new server from a server type, image and location, injecting the given SSH keys; root passwords are never created or returned, so at least one SSH key is required. |
 | `core` | [`server_delete`](#delete-server) | destructive | Permanently deletes a server and all data on its disks; this cannot be undone. |
-| `core` | [`server_rebuild`](#rebuild-server) | destructive (gated / not released) | Overwrites a server's disk with an image (a fresh system image, a snapshot or a backup), destroying all data on the server; the server is powered off first. |
+| `core` | [`server_rebuild`](#rebuild-server) | destructive | Overwrites a server's disk with an image (a fresh system image, a snapshot or a backup), destroying all data on the server; the server is powered off first. |
 | `core` | [`server_change_type`](#change-server-type) | destructive (can incur costs) | Changes the server type (cores, RAM, and optionally disk size) of a server that is powered off; Hetzner copies the disk and starts the server again. |
 | `info` | [`catalog_server_types`](#list-orderable-server-types) | read | Lists Hetzner server types with CPU, memory, disk, architecture and the locations where they can be ordered. |
 | `info` | [`catalog_images`](#list-images) | read | Lists images usable for servers. |
@@ -386,7 +385,7 @@ Annotations: `readOnlyHint=false`, `destructiveHint=false`, `idempotentHint=fals
 | `server_type` | `string` | yes |   | Name or ID of the server type (see catalog_server_types). |
 | `image` | `string` | yes |   | Name or ID of the image (see catalog_images). |
 | `location` | `string` | yes |   | Name of the location, e.g. 'fsn1' (see catalog_locations). Required because prices differ per location. |
-| `ssh_keys` | `string[]` | yes |   | Names of existing SSH keys to inject into the server (see ssh_key_list). At least one is required because root passwords are not supported. |
+| `ssh_keys` | `string[]` | yes |   | Names of existing SSH keys to inject into the server (see ssh_key_list). A name made only of digits is read as a key ID by Hetzner. At least one is required because root passwords are not supported. |
 | `user_data` | `string` | no |   | Cloud-init user data (at most 32 KiB). It is sent to Hetzner but never shown in results, previews or logs. |
 | `labels` | `object` | no |   | Labels for the new resource as key/value pairs. Label-scope labels are added automatically; a different value for a scope key is rejected. |
 | `public_net` | `object` | no |   | Public network: set enable_ipv4 or enable_ipv6 to false to create the server without that public IP (a new Primary IP costs money; see the preview). At least one must stay enabled. |
@@ -468,7 +467,7 @@ Annotations: `readOnlyHint=false`, `destructiveHint=false`, `idempotentHint=fals
 
 **destructive · idempotent · requires `confirm: true`**
 
-Permanently deletes a server and all data on its disks; this cannot be undone. Attached volumes and floating IPs are detached but not deleted and keep billing; a Primary IP is deleted only if it has auto-deletion enabled. Requires confirmation; the preview shows the cost impact.
+Permanently deletes a server and all data on its disks; this cannot be undone. Attached volumes and floating IPs are detached but not deleted and keep billing; a Primary IP is deleted only if it has auto-deletion enabled (Primary IPs created with the server have it). Requires confirmation; the preview shows the cost impact.
 
 Annotations: `readOnlyHint=false`, `destructiveHint=true`, `idempotentHint=true`, `openWorldHint=true`
 
@@ -502,7 +501,7 @@ Annotations: `readOnlyHint=false`, `destructiveHint=true`, `idempotentHint=true`
 
 `server_rebuild`
 
-**destructive · not idempotent · requires `confirm: true` · gated / not released**
+**destructive · not idempotent · requires `confirm: true`**
 
 Overwrites a server's disk with an image (a fresh system image, a snapshot or a backup), destroying all data on the server; the server is powered off first. Root passwords are never returned. Requires confirmation.
 

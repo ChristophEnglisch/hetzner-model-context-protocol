@@ -1,6 +1,7 @@
-// 03 §2.8 pricing.test.ts (P-1..P-8): exact decimals, rounding only when formatting, lookup.
+// 03 §2.8 pricing.test.ts (P-1..P-9): exact decimals, rounding only when formatting, lookup.
 import { describe, expect, it } from "vitest";
 import {
+  ceilDec,
   type Dec,
   decFromNumber,
   formatDec,
@@ -124,5 +125,14 @@ describe("lookup and formatting", () => {
       ],
     });
     expect(serverTypePrice(p, "cpx22", "fsn1")).toBeUndefined();
+  });
+
+  it("rounds sizes up with ceilDec", () => {
+    const up = (n: number) => {
+      const d = decFromNumber(n);
+      if (!d) throw new Error(`not a decimal: ${n}`);
+      return formatDec(ceilDec(d, 2), 2);
+    };
+    expect([0.6102520576171875, 0.6, 0, 2].map(up)).toEqual(["0.62", "0.60", "0.00", "2.00"]);
   });
 });

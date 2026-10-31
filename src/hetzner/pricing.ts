@@ -67,6 +67,14 @@ export function roundDec(a: Dec, digits: number): Dec {
   return { units: negative ? -r : r, scale: digits };
 }
 
+/** Rounds up (towards +∞) at `digits` places: 0.6102 → 0.62, 0.6 → 0.60. Only for sizes, never for prices. */
+export function ceilDec(a: Dec, digits: number): Dec {
+  if (a.scale <= digits) return { units: a.units * pow10(digits - a.scale), scale: digits };
+  const q = pow10(a.scale - digits);
+  const r = a.units / q; // BigInt division truncates towards zero
+  return { units: a.units > 0n && a.units % q !== 0n ? r + 1n : r, scale: digits };
+}
+
 /** Rounds, then prints with exactly `digits` places. "-0.00" is printed as "0.00". signed: "+" for > 0. */
 export function formatDec(a: Dec, digits: number, options: { signed?: boolean } = {}): string {
   const { units } = roundDec(a, digits);

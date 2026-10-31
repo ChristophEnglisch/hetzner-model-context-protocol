@@ -582,7 +582,7 @@ const serverCreate = defineTool({
       )
       .min(1)
       .describe(
-        "Names of existing SSH keys to inject into the server (see ssh_key_list). At least one is required because root passwords are not supported.",
+        "Names of existing SSH keys to inject into the server (see ssh_key_list). A name made only of digits is read as a key ID by Hetzner. At least one is required because root passwords are not supported.",
       ),
     user_data: userDataField(
       "Cloud-init user data (at most 32 KiB). It is sent to Hetzner but never shown in results, previews or logs.",
@@ -713,7 +713,7 @@ const serverDelete = defineTool({
   name: "server_delete",
   title: "Delete server",
   description:
-    "Permanently deletes a server and all data on its disks; this cannot be undone. Attached volumes and floating IPs are detached but not deleted and keep billing; a Primary IP is deleted only if it has auto-deletion enabled. Requires confirmation; the preview shows the cost impact.",
+    "Permanently deletes a server and all data on its disks; this cannot be undone. Attached volumes and floating IPs are detached but not deleted and keep billing; a Primary IP is deleted only if it has auto-deletion enabled (Primary IPs created with the server have it). Requires confirmation; the preview shows the cost impact.",
   kind: "destructive",
   actions: true,
   input: z.object({ id: serverIdField }),
@@ -738,11 +738,6 @@ const serverDelete = defineTool({
   },
 });
 
-/**
- * GATED BY IT-05 (05 K-23, OWNER O-1): built and registered for tests, but released in 1.0 only after
- * a green IT-05 (are the SSH keys injected again after a rebuild? OP-17). If IT-05 fails, this tool is
- * removed before the release.
- */
 const serverRebuild = defineTool({
   name: "server_rebuild",
   title: "Rebuild server",
@@ -762,7 +757,7 @@ const serverRebuild = defineTool({
   target: async (args, ctx) => loadServerTarget(args.id, ctx),
   preview: (args, _ctx, server) => {
     const protection = protectionNotice(server.protection.rebuild, args.id, "rebuild");
-    return `${protection}rebuild server ${quoteName(server.name)} (ID ${args.id}) from image ${quoteName(args.image)}${userDataPart(args.user_data)}. This destroys all data on its disk; Hetzner powers the server off first. Create a snapshot first (snapshot_create) if any data on it is still needed. Hetzner does not document whether the SSH keys of the server are injected again; no root password will be shown, so the server may become unreachable. No price change (the server type stays the same).`;
+    return `${protection}rebuild server ${quoteName(server.name)} (ID ${args.id}) from image ${quoteName(args.image)}${userDataPart(args.user_data)}. This destroys all data on its disk; Hetzner powers the server off first. Create a snapshot first (snapshot_create) if any data on it is still needed. The SSH keys the server was created with are injected again (verified); no root password is shown. No price change (the server type stays the same).`;
   },
   handler: async (args, ctx) => {
     const raw = await ctx.gateway.request<{ action: HetznerAction; root_password?: unknown }>(
@@ -837,7 +832,7 @@ const serverChangeType = defineTool({
   },
 });
 
-/** Toolset core (10 tools). server_rebuild is gated by IT-05 (see above). */
+/** Toolset core (10 tools). */
 export const serverTools: readonly ToolDefinition[] = [
   serverList,
   serverGet,

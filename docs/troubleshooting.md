@@ -37,7 +37,6 @@ flowchart TD
 | `Hetzner action <id> (<command>) failed` | [Failed action](#a-hetzner-action-failed) |
 | `Still running after <s> s; follow up with action_get.` | [Action still running](#an-action-is-still-running) |
 | `Warning: ... lock ...` in a firewall preview | [Lock-out warning](#lock-out-warning) |
-| `server_rebuild` | [Rebuild](#server_rebuild-is-gated) |
 
 ## Server does not start
 
@@ -244,10 +243,6 @@ Related API errors: `Hetzner could not place the server. Try another location or
 ## Lock-out warning
 
 A preview of `firewall_set_rules` can contain warnings that SSH (or another guarded port) may become unreachable. They are warnings, not errors; nothing is blocked. What they cover and what they cannot see: [security](security.md#limits-of-the-lock-out-warning). If SSH runs on another port, set `HETZNER_MCP_FIREWALL_GUARD_PORTS`. If you did lock yourself out, remove or change the firewall rules in the Hetzner Cloud Console.
-
-## server_rebuild is gated
-
-`server_rebuild` is built and registered, but it is not released until a live check (IT-05) confirms that the SSH keys of the server are injected again after a rebuild. Hetzner's rebuild request has no `ssh_keys` field, and the server never shows a root password, so a rebuilt server might be unreachable. Take a snapshot first (`snapshot_create`) if you use it anyway. This point is open; see [security](security.md#known-limitations).
 
 ## Other messages
 

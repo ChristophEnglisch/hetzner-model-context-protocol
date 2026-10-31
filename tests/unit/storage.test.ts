@@ -911,7 +911,7 @@ describe("snapshot_delete", () => {
     t.fake.on("GET", "/images/{id}", imgReply({ type: "snapshot" }));
     const res = await t.call("snapshot_delete", { id: 42 });
     expect(textOf(res)).toMatch(
-      /^Confirmation required\. This would: permanently delete snapshot image "ubuntu-24\.04" \(ID 42, 2\.3 GB\)\. It cannot be recovered\./,
+      /^Confirmation required\. This would: permanently delete snapshot image "ubuntu-24\.04" \(ID 42, 2\.30 GB\)\. It cannot be recovered\./,
     );
     expect(writes(t)).toEqual([]);
   });
@@ -929,6 +929,13 @@ describe("snapshot_delete", () => {
     t.fake.on("GET", "/images/{id}", imgReply({ type: "backup", bound_to: 7 }));
     const res = await t.call("snapshot_delete", { id: 42 });
     expect(textOf(res)).toContain("backup of server 7");
+  });
+
+  it("snapshot_delete preview rounds the image size up", async () => {
+    const t = await start();
+    t.fake.on("GET", "/images/{id}", imgReply({ image_size: 0.6102520576171875 }));
+    const res = await t.call("snapshot_delete", { id: 42 });
+    expect(textOf(res)).toContain("(ID 42, 0.62 GB)");
   });
 
   it("snapshot_delete preview falls back to the description and an unknown size", async () => {

@@ -7,6 +7,7 @@ import { z } from "zod";
 import { hasControlChars, keepScopeLabels, withScopeLabels } from "../guards.js";
 import { ToolError } from "../hetzner/errors.js";
 import { path } from "../hetzner/gateway.js";
+import { ceilDec, decFromNumber, formatDec } from "../hetzner/pricing.js";
 import type { HetznerAction, HetznerServer, Labels } from "../hetzner/types.js";
 import {
   backupEnableCost,
@@ -224,6 +225,12 @@ function protectionPreview(
     ? `turn ON delete protection for ${kind} ${id} ${quotedName}. Hetzner will then refuse to delete it until protection is turned off.`
     : `turn OFF delete protection for ${kind} ${id} ${quotedName}. It can then be deleted (all data lost) without further protection.`;
   return already ? `${text} It already has this state; nothing will change.` : text;
+}
+
+/** snapshot_delete: image_size rounded up to 2 places (0.61025… → 0.62); unreadable values as delivered. */
+function sizeGb(gb: number): string {
+  const d = decFromNumber(gb);
+  return d ? formatDec(ceilDec(d, 2), 2) : String(gb);
 }
 
 const fieldList = (parts: Record<string, boolean>): string =>
@@ -754,7 +761,7 @@ const snapshotDelete = defineTool({
   }),
   target: async (args, ctx) => loadImage(args.id, ctx),
   preview: (args, _ctx, image) => {
-    const size = image.image_size === null ? "unknown size" : `${image.image_size} GB`;
+    const size = image.image_size === null ? "unknown size" : `${sizeGb(image.image_size)} GB`;
     const backup =
       image.type === "backup" && image.bound_to !== null
         ? `; it is the backup of server ${image.bound_to}`

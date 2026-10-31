@@ -90,12 +90,6 @@ async function collect() {
 // Rendering helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Tools that are built and registered but not released until the live check IT-05 passed
- * (are the SSH keys injected again after a rebuild?). Remove the entry when the gate is lifted.
- */
-const GATED = new Set(["server_rebuild"]);
-
 const SAFE_INT = Number.MAX_SAFE_INTEGER;
 
 const cell = (text) =>
@@ -183,7 +177,6 @@ function badges(tool, costNames) {
   else if (!a.readOnlyHint) out.push("not idempotent");
   if (costNames.has(tool.name)) out.push("can incur costs");
   if (tool.inputSchema?.properties?.confirm) out.push("requires `confirm: true`");
-  if (GATED.has(tool.name)) out.push("gated / not released");
   return out;
 }
 
@@ -232,7 +225,6 @@ function render({ tools, prompts, resources, templates, toolsets, costNames }) {
     "- Tools that trigger Hetzner actions take an optional `wait` parameter (default `true`) and return the actions in `actions`. The server polls for up to `HETZNER_MCP_ACTION_WAIT_MS` and sends progress notifications if the client asked for them; with `wait: false`, or when the time is up, the actions are reported as `running` and `action_get` follows up.",
     "- List tools are paginated with `page` and `per_page` and return `{ items, page, per_page, next_page, total_entries }`.",
     "- With `HETZNER_MCP_LABEL_SCOPE` set, write tools only touch resources that carry every scope label, and new resources get the scope labels automatically.",
-    '- `server_rebuild` is marked "gated / not released": it is built and registered, but stays unreleased until the live check IT-05 confirms that SSH keys are injected again after a rebuild.',
     "- Results carry a short neutral summary in `content` and the data in `structuredContent`. Errors are returned with `isError: true`.",
     "",
     "## Overview",
@@ -250,12 +242,7 @@ function render({ tools, prompts, resources, templates, toolsets, costNames }) {
           ? "destructive"
           : "write";
       const first = (tool.description ?? "").split(/(?<=\.)\s+(?=[A-Z])/)[0];
-      const note = [
-        costNames.has(name) ? "can incur costs" : "",
-        GATED.has(name) ? "gated / not released" : "",
-      ]
-        .filter(Boolean)
-        .join(", ");
+      const note = costNames.has(name) ? "can incur costs" : "";
       out.push(
         `| \`${set.name}\` | [\`${name}\`](#${anchor(tool)}) | ${kind}${note ? ` (${note})` : ""} | ${cell(first)} |`,
       );
