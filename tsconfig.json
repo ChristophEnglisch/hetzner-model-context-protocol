@@ -16,6 +16,6 @@
     "verbatimModuleSyntax": true,
     "noEmit": true
   },
-  "include": ["src/**/*", "tests/**/*", "vitest.config.ts"],
+  "include": ["src/**/*", "tests/**/*", "vitest.config.ts", "vitest.contract.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

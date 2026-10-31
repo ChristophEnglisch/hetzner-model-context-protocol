@@ -39,6 +39,7 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "vitest run tests/unit",
+    "test:contract": "npm run build && vitest run --config vitest.contract.config.ts",
     "test:watch": "vitest tests/unit",
     "prepublishOnly": "npm run clean && npm run build && npm test",
     "test:smoke": "npm run build && node tests/smoke/pack-smoke.mjs",
