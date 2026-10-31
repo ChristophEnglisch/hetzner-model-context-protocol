@@ -59,7 +59,7 @@ const ipOut = z.object({
   blocked: z.boolean().describe("True if the IP is blocked."),
 });
 
-const serverOut = serverListItem.omit({ server_type: true, location: true }).extend({
+export const serverOut = serverListItem.omit({ server_type: true, location: true }).extend({
   server_type: z
     .object({
       id: z.number().int().describe("ID of the server type."),
@@ -160,7 +160,7 @@ function toIp(ip: NonNullable<HetznerServer["public_net"]["ipv4"]>): z.infer<typ
 }
 
 /** Output of server_get, server_update and (AP-14) server_create. */
-function toServerOut(raw: HetznerServer): z.infer<typeof serverOut> {
+export function toServerOut(raw: HetznerServer): z.infer<typeof serverOut> {
   const { server_type: type, image, iso } = raw;
   return {
     id: raw.id,
@@ -217,7 +217,10 @@ function toServerOut(raw: HetznerServer): z.infer<typeof serverOut> {
 }
 
 /** Shared by the tools that mutate an existing server (target hook, 01 §5.6). */
-async function loadServerTarget(id: number, ctx: CallContext): Promise<Target<HetznerServer>> {
+export async function loadServerTarget(
+  id: number,
+  ctx: CallContext,
+): Promise<Target<HetznerServer>> {
   const raw = await ctx.gateway.request<{ server: HetznerServer }>("GET", path`/servers/${id}`, {
     signal: ctx.signal,
   });
@@ -389,8 +392,7 @@ const serverPowerForce = defineTool({
   description:
     "Cuts power to a server (off) or cuts power and starts it again (reset), without letting the operating system stop gracefully; this is like pulling the power cord and can lose unsaved data or corrupt files. Use it only if server_power shutdown or reboot does not work. Requires confirmation.",
   kind: "destructive",
-  // core.md asks for idempotent: false (reset acts on every call), but tools-list.test.ts (T-L) demands
-  // idempotentHint true for every destructive tool; kept at the default until the orchestrator decides.
+  idempotent: false,
   actions: true,
   input: z.object({
     id: serverIdField,

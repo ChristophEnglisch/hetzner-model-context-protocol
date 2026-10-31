@@ -445,6 +445,16 @@ describe("server_power_force", () => {
   });
 });
 
+describe("server_power_force annotations", () => {
+  it("server_power_force is destructive and not idempotent", async () => {
+    const t = await start();
+    const tools = (await t.client.listTools()).tools;
+    const a = tools.find((x) => x.name === "server_power_force")?.annotations;
+    expect(a?.destructiveHint).toBe(true);
+    expect(a?.idempotentHint).toBe(false);
+  });
+});
+
 describe("server_protection_set", () => {
   it("server_protection_set sends both flags together", async () => {
     const t = await start();

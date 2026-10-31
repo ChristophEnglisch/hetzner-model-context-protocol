@@ -118,7 +118,8 @@ describe.each([
       expect(a?.readOnlyHint, tool.name).toBe(def?.kind === "read");
       expect(a?.destructiveHint, tool.name).toBe(def?.kind === "destructive");
       expect(a?.idempotentHint, tool.name).toBeTypeOf("boolean");
-      if (def?.kind === "read" || def?.kind === "destructive") {
+      // 01 §6.3: the default is kind !== "write", but a tool may override it (e.g. server_power_force).
+      if (def?.kind === "read") {
         expect(a?.idempotentHint, tool.name).toBe(true);
       }
       expect(a?.openWorldHint, tool.name).toBe(true);
