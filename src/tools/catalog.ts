@@ -3,7 +3,6 @@
 
 import { z } from "zod";
 import { hasControlChars } from "../guards.js";
-import type { HetznerPricing } from "../hetzner/types.js";
 import { labelsOut, priceOut, protectionOut } from "./projections.js";
 import {
   defineTool,
@@ -74,21 +73,6 @@ interface RawLocation {
   country: string;
   network_zone: string;
 }
-
-/** The parts of GET /pricing this toolset reads (AP-13 replaces the gateway placeholder type). */
-interface RawPricing {
-  currency: string;
-  vat_rate: string;
-  volume: { price_per_gb_month: RawPrice };
-  image: { price_per_gb_month: RawPrice };
-  server_backup: { percentage: string };
-  server_types: {
-    name: string;
-    prices: { location: string; price_hourly: RawPrice; price_monthly: RawPrice }[];
-  }[];
-}
-
-const asRawPricing = (p: HetznerPricing): RawPricing => p as unknown as RawPricing;
 
 // --- shared pieces ----------------------------------------------------------------------------
 
@@ -240,7 +224,7 @@ const catalogServerTypes = defineTool({
 
     let currency: string | undefined;
     if (args.location !== undefined && shown.length > 0) {
-      currency = asRawPricing(await ctx.gateway.getPricing({ signal: ctx.signal })).currency;
+      currency = (await ctx.gateway.getPricing({ signal: ctx.signal })).currency;
     }
 
     const items = shown.map(({ type, locations }) => {
@@ -512,7 +496,7 @@ const pricingGet = defineTool({
       .describe("Prices of the requested server type (only if found)."),
   }),
   handler: async (args, ctx) => {
-    const p = asRawPricing(await ctx.gateway.getPricing({ signal: ctx.signal }));
+    const p = await ctx.gateway.getPricing({ signal: ctx.signal });
     const found =
       args.server_type === undefined
         ? undefined

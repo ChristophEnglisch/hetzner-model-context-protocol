@@ -1,11 +1,12 @@
 // defineTool and the shared tool building blocks (01 §6). Every tool goes through defineTool, which
 // applies the guard chain of 01 §5.1 in a fixed order: schema → target → assertMutable →
-// (cost limit, AP-13) → confirmation → handler → actions → output parsing → error mapping + audit.
+// cost limit → confirmation → handler → actions → output parsing → error mapping + audit.
 
 import type { CallToolResult, McpServer, ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { Config } from "../config.js";
 import {
+  assertCostLimit,
   assertMutable,
   type GuardedResource,
   hasControlChars,
@@ -19,6 +20,7 @@ import {
   type Page,
   type WaitOptions,
 } from "../hetzner/gateway.js";
+import type { MonthlyCost } from "../hetzner/pricing.js";
 import type { HetznerAction } from "../hetzner/types.js";
 import { labelsSchema } from "../labels.js";
 import type { Logger } from "../logging.js";
@@ -97,9 +99,14 @@ export interface ToolSpec<I extends z.ZodObject, O extends z.ZodObject, T = unde
    * The call can start or raise recurring costs (03 §1.1). On a write tool it adds `confirm` and requires
    * `preview`, exactly like a destructive tool, but annotations stay destructiveHint: false (6.3).
    * On a destructive tool (confirms anyway) it only marks the tool for HETZNER_MCP_ALLOW_COSTS (8.2)
-   * and the cost limit (5.9) (05 K-28). `monthlyCost` and the cost limit step follow in AP-13.
+   * and the cost limit (5.9) (05 K-28). Requires monthlyCost.
    */
   costs?: boolean;
+  /**
+   * Required for costs tools: the additional net monthly cost of this call (5.9), built only from the
+   * amount functions of src/pricing/estimate.ts (03 §2.6a). Called only when config.maxMonthlyCost is set.
+   */
+  monthlyCost?: (args: z.infer<I>, ctx: PreviewContext, target: T) => Promise<MonthlyCost>;
   /**
    * Loads every existing resource the call mutates. Required for write/destructive unless creates.
    * Cross-field input rules are its first statement (05 K-08): throw ToolError("bad_request") before any request.
@@ -284,6 +291,7 @@ function checkSpec(spec: ToolSpec<z.ZodObject, z.ZodObject, unknown>): void {
       spec.target !== undefined ||
       spec.creates === true ||
       spec.costs === true ||
+      spec.monthlyCost !== undefined ||
       spec.preview !== undefined ||
       spec.actions === true
     ) {
@@ -294,6 +302,8 @@ function checkSpec(spec: ToolSpec<z.ZodObject, z.ZodObject, unknown>): void {
   }
   if (spec.kind === "destructive" && !spec.preview) fail("destructive tools must define preview()");
   if (spec.costs === true && !spec.preview) fail("cost tools must define preview()");
+  if (spec.costs === true && !spec.monthlyCost) fail("cost tools must define monthlyCost()");
+  if (spec.costs !== true && spec.monthlyCost) fail("monthlyCost is only allowed for cost tools");
   for (const key of RESERVED_INPUT_KEYS) {
     if (Object.hasOwn(spec.input.shape, key)) fail(`'${key}' is reserved and added automatically`);
   }
@@ -462,11 +472,15 @@ export function defineTool<I extends z.ZodObject, O extends z.ZodObject, T = und
             const target = spec.target ? await spec.target(args, ctx) : undefined;
             if (target) audit.targets = target.resources.map((r) => `${r.type}:${r.id}`);
             const warnings = target ? assertMutable(ctx.config, target.resources) : [];
-            // Step 4 of 5.1 (cost limit, 05 K-29) is added here by AP-13.
+            const previewCtx: PreviewContext = { ...ctx, gateway: readOnlyView(ctx.gateway) };
+            // 5.1 step 4: independent of confirm and requireConfirmation (05 K-29).
+            if (spec.costs && ctx.config.maxMonthlyCost !== undefined && spec.monthlyCost) {
+              const cost = await spec.monthlyCost(args, previewCtx, target?.value as T);
+              assertCostLimit(ctx.config, cost);
+            }
             if (confirms) {
               audit.confirmed = args.confirm === true;
               if (ctx.config.requireConfirmation && args.confirm !== true && spec.preview) {
-                const previewCtx: PreviewContext = { ...ctx, gateway: readOnlyView(ctx.gateway) };
                 const preview = await spec.preview(args, previewCtx, target?.value as T);
                 requireConfirmation(ctx.config, args.confirm, preview, warnings);
               }

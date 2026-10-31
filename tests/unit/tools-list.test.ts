@@ -50,6 +50,7 @@ const stubTools: ToolDefinition[] = [
     input: idInput,
     output: out,
     preview: () => "preview",
+    monthlyCost: async () => ({ kind: "unknown" }),
     handler: async () => ({ data: { id: 1 }, summary: "ok", actions: [] }),
   }),
   defineTool({

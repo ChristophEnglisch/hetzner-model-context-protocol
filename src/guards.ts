@@ -3,6 +3,7 @@
 
 import type { Config } from "./config.js";
 import { isControlChar, ToolError } from "./hetzner/errors.js";
+import { currencyLabel, formatDec, type MonthlyCost, parseDec, subDec } from "./hetzner/pricing.js";
 import type { Labels } from "./hetzner/types.js";
 import { formatTerms, matchesAll, matchingTerm, splitSelector } from "./labels.js";
 
@@ -158,5 +159,35 @@ export function requireConfirmation(
   throw new ToolError(
     "confirmation_required",
     `Confirmation required. This would: ${what} Nothing was changed. Ask the user for approval, then call this tool again with confirm: true.`,
+  );
+}
+
+/**
+ * Cost limit of one call (01 §5.9, 05 K-29): rejects with ToolError("guard") if the additional net
+ * monthly cost is strictly above HETZNER_MCP_MAX_MONTHLY_COST, or cannot be determined (fail closed).
+ * net ≤ 0 always passes. Exact comparison; rounding only in the message. Pure; no I/O.
+ */
+export function assertCostLimit(config: Pick<Config, "maxMonthlyCost">, cost: MonthlyCost): void {
+  const limit = config.maxMonthlyCost;
+  if (limit === undefined) return;
+  const max = parseDec(limit);
+  if (max === undefined) throw new Error("maxMonthlyCost is not a decimal"); // config.ts validates it
+  const setting = `HETZNER_MCP_MAX_MONTHLY_COST=${limit}`;
+  if (cost.kind === "unavailable") {
+    throw new ToolError(
+      "guard",
+      `Cost limit check failed: Hetzner pricing could not be loaded, so the monthly cost of this call is unknown while ${setting} is set. Nothing was changed. Try again later.`,
+    );
+  }
+  if (cost.kind === "unknown") {
+    throw new ToolError(
+      "guard",
+      `Cost limit check failed: Hetzner lists no price for a part of this call, so its monthly cost is unknown while ${setting} is set. Nothing was changed. Check pricing_get for the requested type and location.`,
+    );
+  }
+  if (cost.net.units <= 0n || subDec(cost.net, max).units <= 0n) return;
+  throw new ToolError(
+    "guard",
+    `Cost limit exceeded: this call adds an estimated ${formatDec(cost.net, 2)} ${currencyLabel(cost.currency)}/month net, above ${setting}. Nothing was changed. Tell the user; only the operator can raise the limit.`,
   );
 }

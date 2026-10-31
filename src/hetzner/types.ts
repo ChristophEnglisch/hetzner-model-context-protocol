@@ -32,11 +32,40 @@ export interface HetznerErrorBody {
   error: { code: string; message: string; details?: unknown };
 }
 
+/** Net and gross of one price as decimal strings (`format: decimal`, R§4.2). */
+export interface PriceStrings {
+  net: string;
+  gross: string;
+}
+
+export interface LocationPrice {
+  location: string;
+  price_hourly: PriceStrings;
+  price_monthly: PriceStrings;
+}
+
 /**
- * `pricing` from `GET /pricing` (R§4.2). Placeholder for the gateway signature only: AP-13 replaces it
- * with the interface from 03 §2.3 (01 §3.9, 05 K-06). Callers must not read fields before that.
+ * `pricing` from `GET /pricing` (R§4.2, 03 §2.3), only the fields we read.
+ * Not typed (01 §3.6): `floating_ip` (deprecated), `load_balancer_types` (1.1).
  */
-export type HetznerPricing = Readonly<Record<string, unknown>>;
+export interface HetznerPricing {
+  /** ISO 4217 (SPEC); the value is account-dependent (not documented) and never assumed. */
+  currency: string;
+  vat_rate: string;
+  server_types: {
+    id: number;
+    name: string;
+    prices: (LocationPrice & { included_traffic: number })[];
+  }[];
+  primary_ips: { type: "ipv4" | "ipv6"; prices: LocationPrice[] }[];
+  floating_ips: {
+    type: "ipv4" | "ipv6";
+    prices: { location: string; price_monthly: PriceStrings }[];
+  }[];
+  volume: { price_per_gb_month: PriceStrings };
+  image: { price_per_gb_month: PriceStrings };
+  server_backup: { percentage: string };
+}
 
 /**
  * Server object (R§2.9, 02-tool-specs/core.md): only fields that guards, previews or mappers read.

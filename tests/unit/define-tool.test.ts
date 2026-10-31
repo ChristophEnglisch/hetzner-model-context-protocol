@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Config } from "../../src/config.js";
 import { ToolError } from "../../src/hetzner/errors.js";
 import { path } from "../../src/hetzner/gateway.js";
+import { type MonthlyCost, parseDec } from "../../src/hetzner/pricing.js";
 import type { HetznerAction } from "../../src/hetzner/types.js";
 import {
   type CallContext,
@@ -91,6 +92,13 @@ function powerTool(overrides: Partial<ToolSpec<typeof idInput, typeof idOutput, 
   });
 }
 
+/** MonthlyCost "ok" in EUR for a decimal string. */
+const okCost = (net: string): MonthlyCost => ({
+  kind: "ok",
+  net: parseDec(net) ?? { units: 0n, scale: 0 },
+  currency: "EUR",
+});
+
 const createInput = z.object({
   name: z.string().optional().describe("Name of the new server."),
   labels: newLabelsField.optional(),
@@ -109,6 +117,7 @@ function costTool(
     input: createInput,
     output: idOutput,
     preview: () => "create a server.",
+    monthlyCost: async () => okCost("1.00"),
     handler: async (_args, ctx) => {
       const body = await ctx.gateway.request<{ server: { id: number } }>("POST", "/servers", {
         body: {},
@@ -161,6 +170,7 @@ describe("defineTool at definition time", () => {
     handler: async () => ({ data: { id: 1 }, summary: "ok" }),
   };
   const preview = () => "x.";
+  const monthlyCost = async () => okCost("1.00");
   const noTarget = { target: undefined };
 
   it.each<[string, Partial<ToolSpec<z.ZodObject, z.ZodObject, undefined>>, string]>([
@@ -177,6 +187,12 @@ describe("defineTool at definition time", () => {
       "destructive tools must define preview()",
     ],
     ["costs without preview", { costs: true }, "cost tools must define preview()"],
+    ["costs without monthlyCost", { costs: true, preview }, "cost tools must define monthlyCost()"],
+    [
+      "monthlyCost without costs",
+      { monthlyCost: async () => okCost("1.00") },
+      "monthlyCost is only allowed for cost tools",
+    ],
     [
       "input confirm",
       { input: z.object({ confirm: z.boolean() }) },
@@ -243,11 +259,13 @@ describe("defineTool at definition time", () => {
     expect(defineTool({ ...base, target: undefined, creates: true })).toMatchObject({
       kind: "write",
     });
-    expect(defineTool({ ...base, kind: "destructive", costs: true, preview })).toMatchObject({
+    expect(
+      defineTool({ ...base, kind: "destructive", costs: true, preview, monthlyCost }),
+    ).toMatchObject({
       confirms: true,
       costs: true,
     });
-    expect(defineTool({ ...base, costs: true, preview })).toMatchObject({
+    expect(defineTool({ ...base, costs: true, preview, monthlyCost })).toMatchObject({
       confirms: true,
       costs: true,
     });
@@ -655,6 +673,73 @@ describe("defineTool at call time", () => {
     const passed = await harness.call("test_create", { name: "web" });
     expect(textOf(passed)).toMatch(/^Confirmation required/);
     expect(audit(harness)[1]).toMatchObject({ targets: [], confirmed: false });
+  });
+
+  it("rejects calls above the cost limit before confirmation, even with confirm: true", async () => {
+    const preview = vi.fn(() => "create a server.");
+    const monthlyCost = vi.fn(async () => okCost("3.00"));
+    const harness = await start([costTool({ preview, monthlyCost })], { maxMonthlyCost: "2.00" });
+
+    for (const args of [{ name: "web" }, { name: "web", confirm: true }]) {
+      const result = await harness.call("test_create", args);
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe(
+        "Cost limit exceeded: this call adds an estimated 3.00 EUR/month net, above HETZNER_MCP_MAX_MONTHLY_COST=2.00. Nothing was changed. Tell the user; only the operator can raise the limit.",
+      );
+    }
+    expect(monthlyCost).toHaveBeenCalledTimes(2);
+    expect(preview).not.toHaveBeenCalled();
+    expect(writes(harness)).toEqual([]);
+    expect(audit(harness).map((a) => a.outcome)).toEqual(["guard", "guard"]);
+  });
+
+  it("fails closed when the cost cannot be determined", async () => {
+    const cases: [MonthlyCost, RegExp][] = [
+      [{ kind: "unavailable" }, /^Cost limit check failed: Hetzner pricing could not be loaded/],
+      [{ kind: "unknown" }, /^Cost limit check failed: Hetzner lists no price for a part/],
+    ];
+    for (const [cost, text] of cases) {
+      const tool = costTool({ monthlyCost: async () => cost });
+      const limited = await start([tool], { maxMonthlyCost: "2.00" });
+      const rejected = await limited.call("test_create", { name: "web", confirm: true });
+      expect(textOf(rejected)).toMatch(text);
+      expect(audit(limited)[0]).toMatchObject({ outcome: "guard" });
+      expect(writes(limited)).toEqual([]);
+      await limited.close();
+
+      const unlimited = await start([tool]);
+      const asked = await unlimited.call("test_create", { name: "web" });
+      expect(textOf(asked)).toMatch(/^Confirmation required/);
+      expect(audit(unlimited)[0]).toMatchObject({ outcome: "confirmation_required" });
+      await unlimited.close();
+      h = undefined;
+    }
+  });
+
+  it("skips the cost check without a limit", async () => {
+    const monthlyCost = vi.fn(async (_args: unknown, ctx: CallContext) => {
+      await ctx.gateway.getPricing({ signal: ctx.signal });
+      return okCost("3.00");
+    });
+    const harness = await start([costTool({ monthlyCost })], { maxMonthlyCost: undefined });
+    harness.fake.on("POST", "/servers", ok({ server: { id: 99 } }, 201));
+
+    const result = await harness.call("test_create", { name: "web", confirm: true });
+    expect(result.structuredContent).toEqual({ id: 99 });
+    expect(monthlyCost).not.toHaveBeenCalled();
+    expect(harness.fake.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /servers"]);
+  });
+
+  it("applies the cost limit also when confirmation is disabled", async () => {
+    const harness = await start([costTool({ monthlyCost: async () => okCost("3.00") })], {
+      maxMonthlyCost: "2.00",
+      requireConfirmation: false,
+    });
+    const result = await harness.call("test_create", { name: "web" });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/^Cost limit exceeded: this call adds an estimated 3\.00 EUR/);
+    expect(audit(harness)[0]).toMatchObject({ outcome: "guard" });
+    expect(writes(harness)).toEqual([]);
   });
 
   it("maps Hetzner errors of the handler to isError", async () => {

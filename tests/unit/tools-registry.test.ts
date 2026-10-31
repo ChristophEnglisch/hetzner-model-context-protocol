@@ -42,6 +42,7 @@ const stubTools = [
     input: empty,
     output: empty,
     preview: () => "preview",
+    monthlyCost: async () => ({ kind: "unknown" }),
     handler: async () => ({ data: {}, summary: "ok" }),
   }),
   defineTool({
