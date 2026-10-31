@@ -287,7 +287,8 @@ describe("firewall_set_rules", () => {
     const res = await t.call("firewall_set_rules", { id: 42, rules: [SSH_IN, SSH_IN] });
     expect(res.isError).toBe(true);
     expect(textOf(res)).toMatch(
-      /^Confirmation required\. This would: replace all 1 rule\(s\) of firewall "new-name" \(ID 42\) with 2 rule\(s\); it is applied to 1 server\(s\)\./,
+      // {n} counts rules after de-duplication (03 §3.6): two identical rules are one.
+      /^Confirmation required\. This would: replace all 1 rule\(s\) of firewall "new-name" \(ID 42\) with 1 rule\(s\); it is applied to 1 server\(s\)\./,
     );
     expect(textOf(res)).toContain("Nothing was changed");
     expect(t.fake.requests("POST", "/firewalls/{id}/actions/set_rules")).toHaveLength(0);
@@ -409,7 +410,10 @@ describe("firewall_apply_to_resources", () => {
     expect(t.fake.requests("GET", "/servers/{id}")).toHaveLength(2);
     const out = res.structuredContent as { actions: Obj[] };
     expect(out.actions.map((a) => a.status)).toEqual(["success", "success"]);
-    expect(textOf(res)).toBe("Applying firewall 42 to 2 server(s) and 1 label selector(s).");
+    // The fixture firewall only allows port 80, so the F-03 note for port 22 follows (03 §3.6).
+    expect(textOf(res)).toBe(
+      "Applying firewall 42 to 2 server(s) and 1 label selector(s). Note: firewall 42 does not allow inbound TCP port 22; servers it is applied to are reachable on that port only if another firewall on them allows it.",
+    );
   });
 
   it("firewall_apply_to_resources rejects a call without targets", async () => {
@@ -658,5 +662,170 @@ describe("firewalls toolset", () => {
     });
     expect(a("firewall_set_rules")).toMatchObject({ destructiveHint: true });
     expect(a("firewall_delete")).toMatchObject({ destructiveHint: true });
+  });
+});
+
+describe("F-03 firewall diff and lock-out texts (03 §3.6, AP-16)", () => {
+  const any = ["0.0.0.0/0", "::/0"];
+  const rule = (port: string | undefined, ips: string[] = any): Obj => ({
+    direction: "in",
+    protocol: "tcp",
+    ...(port !== undefined && { port }),
+    source_ips: ips,
+  });
+  const APPLIED_2 = [
+    { type: "server", server: { id: 1 } },
+    {
+      type: "label_selector",
+      label_selector: { selector: "a=b" },
+      applied_to_resources: [
+        { type: "server", server: { id: 1 } },
+        { type: "server", server: { id: 2 } },
+      ],
+    },
+  ];
+  const F8_OLD = [rule("22"), rule("443")];
+  const F8_NEW = [rule("443")];
+  const edge = (rules: Obj[], appliedTo: unknown[] = APPLIED_2) =>
+    fwReply({ id: 42, name: "edge", rules, applied_to: appliedTo });
+  const WARN_22 =
+    "Warning: after this change, firewall 42 no longer allows inbound TCP port 22 from any address; the 2 server(s) it is applied to lose access on that port unless another firewall on them allows it.";
+  const API =
+    "Firewall rules can be changed again through the API at any time, even if SSH is blocked.";
+  const NO_INBOUND =
+    "The new rules contain no inbound rule; Hetzner then drops all inbound traffic to the servers this firewall is applied to.";
+  const CONFIRM =
+    "Nothing was changed. Ask the user for approval, then call this tool again with confirm: true.";
+
+  it("set_rules preview shows the rule diff and creates no action", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge(F8_OLD));
+    const res = await t.call("firewall_set_rules", { id: 42, rules: F8_NEW });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toBe(
+      `Confirmation required. This would: replace all 2 rule(s) of firewall "edge" (ID 42) with 1 rule(s); it is applied to 2 server(s). Rule changes (order and descriptions ignored): 0 added, 1 removed, 1 unchanged. Removed: in tcp 22 from 0.0.0.0/0, ::/0. ${WARN_22} ${API} ${CONFIRM}`,
+    );
+    expect(t.fake.requests("POST", "/firewalls/{id}/actions/set_rules")).toHaveLength(0);
+  });
+
+  it("set_rules summary repeats the lockout warning", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge(F8_OLD));
+    actionRoutes(t, "/firewalls/{id}/actions/set_rules");
+    const res = await t.call("firewall_set_rules", { id: 42, rules: F8_NEW, confirm: true });
+    expect(res.isError).toBeFalsy();
+    expect(textOf(res)).toBe(`Set 1 rule(s) on firewall 42. ${WARN_22}`);
+    expect((res.structuredContent as { warnings?: string[] }).warnings ?? []).toEqual([]);
+  });
+
+  it("set_rules summary names the missing inbound rule without the API sentence", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge(F8_OLD));
+    actionRoutes(t, "/firewalls/{id}/actions/set_rules");
+    const res = await t.call("firewall_set_rules", { id: 42, rules: [], confirm: true });
+    expect(textOf(res)).toBe(`Set 0 rule(s) on firewall 42. ${WARN_22} ${NO_INBOUND}`);
+  });
+
+  it("set_rules preview for an empty list (F-9)", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge(F8_OLD));
+    const res = await t.call("firewall_set_rules", { id: 42, rules: [] });
+    expect(textOf(res)).toContain(
+      "0 added, 2 removed, 0 unchanged. Removed: in tcp 22 from 0.0.0.0/0, ::/0; in tcp 443 from 0.0.0.0/0, ::/0.",
+    );
+    expect(textOf(res)).toContain(`${WARN_22} ${NO_INBOUND} ${API} Nothing was changed.`);
+  });
+
+  it("set_rules preview without lockout but without inbound rule (F-13)", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge([rule("80", ["0.0.0.0/0"])]));
+    const res = await t.call("firewall_set_rules", { id: 42, rules: [] });
+    expect(textOf(res)).toContain(`in tcp 80 from 0.0.0.0/0. ${NO_INBOUND} Nothing was changed.`);
+    expect(textOf(res)).not.toContain("Warning:");
+    expect(textOf(res)).not.toContain(API);
+  });
+
+  it("set_rules preview for a firewall that is not applied (F-14)", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge(F8_OLD, []));
+    const res = await t.call("firewall_set_rules", { id: 42, rules: F8_NEW });
+    expect(textOf(res)).toContain(
+      "it is applied to 0 server(s). Rule changes (order and descriptions ignored): 0 added, 1 removed, 1 unchanged. Removed: in tcp 22 from 0.0.0.0/0, ::/0. The firewall is not applied to any server, so no server is affected now. Nothing was changed.",
+    );
+    expect(textOf(res)).not.toContain("Warning:");
+  });
+
+  it("set_rules preview names a lost address family (F-10)", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge([rule("22")]));
+    const res = await t.call("firewall_set_rules", { id: 42, rules: [rule("22", ["::/0"])] });
+    expect(textOf(res)).toContain(
+      "Added: in tcp 22 from ::/0. Removed: in tcp 22 from 0.0.0.0/0, ::/0. Warning: after this change, firewall 42 no longer allows inbound TCP port 22 over IPv4 (only IPv6 sources remain). Firewall rules can be changed again",
+    );
+  });
+
+  it("set_rules preview ignores order, duplicates and descriptions", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge(F8_OLD));
+    const res = await t.call("firewall_set_rules", {
+      id: 42,
+      rules: [
+        { ...rule("443"), description: "web" },
+        rule("22-22", ["::/0", "0.0.0.0/0"]),
+        rule("443"),
+      ],
+    });
+    expect(textOf(res)).toContain(
+      'replace all 2 rule(s) of firewall "edge" (ID 42) with 2 rule(s); it is applied to 2 server(s). Rule changes (order and descriptions ignored): 0 added, 0 removed, 2 unchanged. Nothing was changed.',
+    );
+  });
+
+  it("set_rules preview lists at most 10 rules (F-22)", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge([]));
+    const rules = Array.from({ length: 12 }, (_, i) => rule(String(1000 + i), ["0.0.0.0/0"]));
+    const res = await t.call("firewall_set_rules", { id: 42, rules });
+    const listed = Array.from({ length: 10 }, (_, i) => `in tcp ${1000 + i} from 0.0.0.0/0`);
+    expect(textOf(res)).toContain(
+      `12 added, 0 removed, 0 unchanged. Added: ${listed.join("; ")}; … and 2 more.`,
+    );
+  });
+
+  it("apply notes a firewall without SSH rule", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge([rule("80")])).on("GET", "/servers/{id}", server());
+    actionRoutes(t, "/firewalls/{id}/actions/apply_to_resources");
+    const res = await t.call("firewall_apply_to_resources", { id: 42, server_ids: [7] });
+    expect(res.isError).toBeFalsy();
+    expect(textOf(res)).toBe(
+      "Applying firewall 42 to 1 server(s) and 0 label selector(s). Note: firewall 42 does not allow inbound TCP port 22; servers it is applied to are reachable on that port only if another firewall on them allows it.",
+    );
+  });
+
+  it("apply adds no note when the guarded port is allowed", async () => {
+    const t = await start();
+    t.fake.on("GET", "/firewalls/{id}", edge([rule("22")])).on("GET", "/servers/{id}", server());
+    actionRoutes(t, "/firewalls/{id}/actions/apply_to_resources");
+    const res = await t.call("firewall_apply_to_resources", { id: 42, server_ids: [7] });
+    expect(textOf(res)).toBe("Applying firewall 42 to 1 server(s) and 0 label selector(s).");
+  });
+
+  it("uses configured guard ports", async () => {
+    const t = await start({ firewallGuardPorts: [2222] });
+    t.fake.on("GET", "/firewalls/{id}", edge([rule("22"), rule("2222")]));
+    const res = await t.call("firewall_set_rules", { id: 42, rules: [rule("22")] });
+    expect(textOf(res)).toContain(
+      "Warning: after this change, firewall 42 no longer allows inbound TCP port 2222 from any address;",
+    );
+    expect(textOf(res)).not.toContain("inbound TCP port 22 ");
+  });
+
+  it("uses configured guard ports for the apply note", async () => {
+    const t = await start({ firewallGuardPorts: [22, 2222] });
+    t.fake.on("GET", "/firewalls/{id}", edge([rule("22")])).on("GET", "/servers/{id}", server());
+    actionRoutes(t, "/firewalls/{id}/actions/apply_to_resources");
+    const res = await t.call("firewall_apply_to_resources", { id: 42, server_ids: [7] });
+    expect(textOf(res)).toContain("Note: firewall 42 does not allow inbound TCP port 2222;");
+    expect(textOf(res)).not.toContain("inbound TCP port 22;");
   });
 });

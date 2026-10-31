@@ -1,8 +1,19 @@
 // Toolset firewalls (02-tool-specs/firewalls.md): list, get, create, update, set_rules,
 // apply_to_resources, remove_from_resources, delete.
-// The rule diff and the lock-out warning (03 §3.6, F-03) are added by AP-16 at the marked hook points.
+// set_rules and apply_to_resources carry the rule diff and lock-out texts of 03 §3.6 (F-03, AP-16).
 
 import { z } from "zod";
+import {
+  allowsPort,
+  appliedServerIds,
+  describeRule,
+  diffRules,
+  findLockouts,
+  hasInboundRule,
+  type Lockout,
+  type NormalizedRule,
+  normalizeRules,
+} from "../firewall/rules.js";
 import {
   assertSelectorInScope,
   type GuardedResource,
@@ -227,14 +238,42 @@ function toFirewallOut(raw: HetznerFirewall): z.infer<typeof firewallOut> {
   };
 }
 
-/** Distinct servers a firewall is applied to, directly or through label selectors. */
-function appliedServerCount(raw: HetznerFirewall): number {
-  const ids = new Set<number>();
-  for (const a of raw.applied_to) {
-    if (a.server) ids.add(a.server.id);
-    for (const r of a.applied_to_resources ?? []) if (r.server) ids.add(r.server.id);
-  }
-  return ids.size;
+// --- F-03 texts (03 §3.6, wörtlich) ----------------------------------------------------------
+
+const MAX_LISTED_RULES = 10;
+
+function ruleList(rules: readonly NormalizedRule[]): string {
+  const shown = rules.slice(0, MAX_LISTED_RULES).map(describeRule);
+  const rest = rules.length - shown.length;
+  return `${shown.join("; ")}${rest > 0 ? `; … and ${rest} more` : ""}`;
+}
+
+/**
+ * Lock-out sentences shared by preview and summary: Warning: per lockout (in the row order of
+ * 03 §3.6: all, ipv4, ipv6), then the no-inbound-rule sentence. Only when s > 0.
+ */
+function lockoutSentences(
+  id: number,
+  servers: number,
+  lockouts: readonly Lockout[],
+  newRules: readonly RuleIn[],
+): string[] {
+  if (servers === 0) return [];
+  const prefix = `Warning: after this change, firewall ${id} no longer allows inbound TCP port`;
+  const of = (lost: Lockout["lost"]) => lockouts.filter((l) => l.lost === lost).map((l) => l.port);
+  return [
+    ...of("all").map(
+      (p) =>
+        `${prefix} ${p} from any address; the ${servers} server(s) it is applied to lose access on that port unless another firewall on them allows it.`,
+    ),
+    ...of("ipv4").map((p) => `${prefix} ${p} over IPv4 (only IPv6 sources remain).`),
+    ...of("ipv6").map((p) => `${prefix} ${p} over IPv6 (only IPv4 sources remain).`),
+    ...(hasInboundRule(newRules)
+      ? []
+      : [
+          "The new rules contain no inbound rule; Hetzner then drops all inbound traffic to the servers this firewall is applied to.",
+        ]),
+  ];
 }
 
 // --- shared helpers ---------------------------------------------------------------------------
@@ -453,22 +492,39 @@ const firewallSetRules = defineTool({
     rule_count: z.number().int().describe("Number of rules sent."),
   }),
   target: async (args, ctx) => loadFirewall(args.id, ctx),
-  preview: (args, _ctx, fw) => {
+  preview: (args, ctx, fw) => {
+    const o = normalizeRules(fw.rules).length;
+    const n = normalizeRules(args.rules).length;
+    const s = appliedServerIds(fw).size;
+    const diff = diffRules(fw.rules, args.rules);
+    const lockouts = findLockouts(fw.rules, args.rules, ctx.config.firewallGuardPorts);
     const parts = [
-      `replace all ${fw.rules.length} rule(s) of firewall ${quoteName(fw.name)} (ID ${fw.id}) with ${args.rules.length} rule(s); it is applied to ${appliedServerCount(fw)} server(s).`,
+      `replace all ${o} rule(s) of firewall ${quoteName(fw.name)} (ID ${fw.id}) with ${n} rule(s); it is applied to ${s} server(s). Rule changes (order and descriptions ignored): ${diff.added.length} added, ${diff.removed.length} removed, ${diff.unchanged.length} unchanged.`,
     ];
-    // AP-16 HOOK (preview): replace the sentence above with the full text of 03 §3.6
-    // (appliedServerIds, rule diff, lock-out sentences {F3}) and push further parts here.
+    if (diff.added.length > 0) parts.push(`Added: ${ruleList(diff.added)}.`);
+    if (diff.removed.length > 0) parts.push(`Removed: ${ruleList(diff.removed)}.`);
+    parts.push(...lockoutSentences(fw.id, s, lockouts, args.rules));
+    if (s > 0 && lockouts.length > 0) {
+      parts.push(
+        "Firewall rules can be changed again through the API at any time, even if SSH is blocked.",
+      );
+    }
+    if (s === 0)
+      parts.push("The firewall is not applied to any server, so no server is affected now.");
     return parts.join(" ");
   },
-  handler: async (args, ctx) => {
+  handler: async (args, ctx, fw) => {
     const raw = await ctx.gateway.request<{ actions: HetznerAction[] }>(
       "POST",
       path`/firewalls/${args.id}/actions/set_rules`,
       { body: { rules: args.rules }, signal: ctx.signal },
     );
-    // AP-16 HOOK (summary): append the Warning:/no-inbound-rule sentences after this base text.
-    const summary = `Set ${args.rules.length} rule(s) on firewall ${args.id}.`;
+    // Same Warning:/no-inbound-rule sentences as the preview, without names and diff lists (03 §3.6).
+    const lockouts = findLockouts(fw.rules, args.rules, ctx.config.firewallGuardPorts);
+    const summary = [
+      `Set ${args.rules.length} rule(s) on firewall ${args.id}.`,
+      ...lockoutSentences(args.id, appliedServerIds(fw).size, lockouts, args.rules),
+    ].join(" ");
     return {
       data: { id: args.id, rule_count: args.rules.length },
       summary,
@@ -487,7 +543,7 @@ const firewallApply = defineTool({
   input: z.object({ id: idField("firewall"), ...firewallTargetsShape }),
   output: targetOutput,
   target: async (args, ctx) => loadFirewallWithServers(args.id, args, ctx),
-  handler: async (args, ctx) => {
+  handler: async (args, ctx, fw) => {
     const raw = await ctx.gateway.request<{ actions: HetznerAction[] }>(
       "POST",
       path`/firewalls/${args.id}/actions/apply_to_resources`,
@@ -495,11 +551,19 @@ const firewallApply = defineTool({
     );
     const serverCount = args.server_ids?.length ?? 0;
     const selectorCount = args.label_selectors?.length ?? 0;
-    // AP-16 HOOK (summary): append the `Note:` sentence of 03 §3.6 per guarded port without an allow rule
-    // (input: the target firewall rules and ctx.config.firewallGuardPorts).
+    // One `Note:` per guarded port the firewall does not allow (03 §3.6); no extra request.
+    const notes = ctx.config.firewallGuardPorts
+      .filter((p) => !allowsPort(fw.rules, p))
+      .map(
+        (p) =>
+          `Note: firewall ${args.id} does not allow inbound TCP port ${p}; servers it is applied to are reachable on that port only if another firewall on them allows it.`,
+      );
     return {
       data: { id: args.id, server_count: serverCount, label_selector_count: selectorCount },
-      summary: `Applying firewall ${args.id} to ${serverCount} server(s) and ${selectorCount} label selector(s).`,
+      summary: [
+        `Applying firewall ${args.id} to ${serverCount} server(s) and ${selectorCount} label selector(s).`,
+        ...notes,
+      ].join(" "),
       actions: raw.actions,
     };
   },
