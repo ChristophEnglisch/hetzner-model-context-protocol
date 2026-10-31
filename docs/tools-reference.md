@@ -502,11 +502,11 @@ Annotations: `readOnlyHint=false`, `destructiveHint=true`, `idempotentHint=true`
 
 `server_rebuild`
 
-**destructive · idempotent · requires `confirm: true` · gated / not released**
+**destructive · not idempotent · requires `confirm: true` · gated / not released**
 
 Overwrites a server's disk with an image (a fresh system image, a snapshot or a backup), destroying all data on the server; the server is powered off first. Root passwords are never returned. Requires confirmation.
 
-Annotations: `readOnlyHint=false`, `destructiveHint=true`, `idempotentHint=true`, `openWorldHint=true`
+Annotations: `readOnlyHint=false`, `destructiveHint=true`, `idempotentHint=false`, `openWorldHint=true`
 
 **Parameters**
 
