@@ -223,7 +223,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     issues.push(urlMessage);
   } else {
     const url = new URL(rawUrl);
-    if (url.protocol === "https:" || (url.protocol === "http:" && isLoopbackHost(url.hostname))) {
+    if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") {
+      issues.push(
+        "HETZNER_API_URL: must not contain credentials, a query or a fragment (the token is sent as a header)",
+      );
+    } else if (
+      url.protocol === "https:" ||
+      (url.protocol === "http:" && isLoopbackHost(url.hostname))
+    ) {
       apiUrl = rawUrl.replace(/\/+$/, "");
       apiHost = url.hostname;
     } else {

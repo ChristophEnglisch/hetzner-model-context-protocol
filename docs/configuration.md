@@ -45,6 +45,7 @@ Create the token in the Hetzner Cloud Console under *Security > API Tokens* of t
 `HETZNER_API_URL` defaults to `https://api.hetzner.cloud/v1`. It exists for tests, proxies and local stubs. Rules:
 
 - It must be an `https` URL. `http` is accepted only for `localhost`, `*.localhost`, `[::1]` and `127.x.x.x` IPv4 literals.
+- It must not contain credentials (`user:pw@`), a query string or a fragment; the token is sent as a header, never in the URL.
 - Trailing slashes are removed.
 - If the host is not `api.hetzner.cloud`, the server logs a warning at startup, because **the API token is sent to that host**.
 - **The URL must not contain credentials** (`https://user:pass@host/...`). The URL appears in the startup log and in error messages, so credentials in it would be written there. Pass the token only through `HETZNER_TOKEN`.

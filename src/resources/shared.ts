@@ -48,7 +48,9 @@ export async function guardedRead<T>(
     if (mapped.kind === "unexpected") {
       ctx.logger.error("Unexpected resource failure", {
         resource,
-        error: error instanceof z.ZodError ? "schema mismatch" : mapped.message,
+        // Kind and status only: the mapped message can carry Hetzner's error text (01 §6.8).
+        error: error instanceof z.ZodError ? "schema mismatch" : mapped.kind,
+        ...(mapped.status !== undefined && { status: mapped.status }),
       });
     }
     throw mapped;

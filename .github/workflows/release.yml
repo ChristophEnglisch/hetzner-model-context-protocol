@@ -96,7 +96,7 @@ jobs:
           current="$(npm --version)"
           echo "npm $current (node $(node --version))"
           if [ "$(printf '%s\n' 11.5.1 "$current" | sort -V | head -n1)" != "11.5.1" ]; then
-            npm install -g npm@latest
+            npm install -g npm@11.20.0
             echo "upgraded to npm $(npm --version)"
           fi
       - name: Check tag matches package.json

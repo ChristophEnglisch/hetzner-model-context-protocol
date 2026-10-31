@@ -231,6 +231,15 @@ describe("resources", () => {
     expect(t.fake.calls).toHaveLength(0);
   });
 
+  it("RS-8b logs no Hetzner error text for failed reads", async () => {
+    const t = await start();
+    t.fake.on("GET", "/servers/{id}", apiError(418, "teapot", "PLANTED-API-TEXT"));
+    await expect(t.client.readResource({ uri: "hetzner://servers/7" })).rejects.toThrow();
+    const logs = t.logs.join("\n");
+    expect(logs).toContain("Unexpected resource failure");
+    expect(logs).not.toContain("PLANTED-API-TEXT");
+  });
+
   it("RS-8 maps API errors", async () => {
     const t = await start();
     t.fake.on("GET", "/servers/{id}", apiError(404, "not_found", "server not found"));

@@ -129,6 +129,19 @@ describe("loadConfig", () => {
     ).not.toThrow();
   });
 
+  it("rejects userinfo, query and fragment in HETZNER_API_URL", () => {
+    for (const url of [
+      "https://user:pw@proxy.example/v1",
+      "https://user@proxy.example/v1",
+      "https://proxy.example/v1?x=1",
+      "https://proxy.example/v1#frag",
+    ]) {
+      expect(issuesOf({ ...base, HETZNER_API_URL: url })).toContain(
+        "HETZNER_API_URL: must not contain credentials, a query or a fragment (the token is sent as a header)",
+      );
+    }
+  });
+
   it("requires https for HETZNER_API_URL except loopback", () => {
     for (const url of ["http://example.com", "http://127.example.com"]) {
       expect(issuesOf({ ...base, HETZNER_API_URL: url })).toContain(

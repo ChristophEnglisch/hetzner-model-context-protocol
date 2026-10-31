@@ -172,6 +172,18 @@ describe("prompts", () => {
     expect(h.logs.some((l) => l.includes("completion_failed"))).toBe(true);
   });
 
+  it("PR-10b completion failures log kind and status, not Hetzner's text", async () => {
+    h = await startHarness();
+    h.fake.on("GET", "/locations", apiError(422, "invalid_input", "PLANTED-API-TEXT"));
+    await h.client.complete({
+      ref: { type: "ref/prompt", name: "provision_web_server" },
+      argument: { name: "location", value: "n" },
+    });
+    const logs = h.logs.join("\n");
+    expect(logs).toContain("completion_failed");
+    expect(logs).not.toContain("PLANTED-API-TEXT");
+  });
+
   it("PR-11 provision_web_server is blocked when costs are not allowed", async () => {
     h = await startHarness({ allowCosts: false });
     await expect(

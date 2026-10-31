@@ -126,7 +126,7 @@ After `firewall_set_rules`, test your access in a second session before you clos
 | Never | Why |
 |---|---|
 | Return root passwords | Servers are created with SSH keys only (`ssh_keys` is mandatory in `server_create`). If Hetzner returns a root password anyway, it is discarded, a warning without the value is logged, and the summary says so. |
-| Return or log cloud-init user data | It is sent to Hetzner when you create or rebuild a server, but appears in no result, preview, summary or log line. The preview only mentions its size. |
+| Return or log cloud-init user data | It is sent to Hetzner when you create or rebuild a server, but appears in no result, preview, summary or log line. The preview shows only its size in bytes, never its content. |
 | Return console credentials | The password and `wss_url` of console requests are never declared in any output schema, and the endpoints are not used. |
 | Provide rescue mode or password reset | These endpoints only make sense with a password. They are not part of this version. |
 | Log the token | The configured token is masked literally in every log line, and fields whose name matches `secret`, `password`, `token`, `authorization`, `credential` or `user_data` are replaced by `[REDACTED]`. The one exception is `tokenSource`, which holds only a variable name. |

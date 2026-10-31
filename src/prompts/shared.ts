@@ -74,8 +74,11 @@ export async function completeLocationNames(ctx: ToolContext, prefix: string): P
       .sort((a, b) => a.localeCompare(b))
       .slice(0, MAX_COMPLETIONS);
   } catch (error) {
+    // Kind and status only: the mapped message can carry Hetzner's error text (01 §6.8).
+    const mapped = mapHetznerError(error);
     ctx.logger.warn("completion_failed", {
-      error: mapHetznerError(error).message,
+      kind: mapped.kind,
+      ...(mapped.status !== undefined && { status: mapped.status }),
     });
     return [];
   }
