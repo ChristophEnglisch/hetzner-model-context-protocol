@@ -810,6 +810,18 @@ describe("F-03 firewall diff and lock-out texts (03 §3.6, AP-16)", () => {
     expect(textOf(res)).toBe("Applying firewall 42 to 1 server(s) and 0 label selector(s).");
   });
 
+  it("apply does not note port 22 for a tcp rule with port any", async () => {
+    const t = await start();
+    t.fake
+      .on("GET", "/firewalls/{id}", edge([rule("any", ["0.0.0.0/0"])]))
+      .on("GET", "/servers/{id}", server());
+    actionRoutes(t, "/firewalls/{id}/actions/apply_to_resources");
+    const res = await t.call("firewall_apply_to_resources", { id: 42, server_ids: [7] });
+    expect(res.isError).toBeFalsy();
+    expect(textOf(res)).toBe("Applying firewall 42 to 1 server(s) and 0 label selector(s).");
+    expect(textOf(res)).not.toContain("Note:");
+  });
+
   it("uses configured guard ports", async () => {
     const t = await start({ firewallGuardPorts: [2222] });
     t.fake.on("GET", "/firewalls/{id}", edge([rule("22"), rule("2222")]));

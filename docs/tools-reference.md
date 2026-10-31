@@ -1050,7 +1050,7 @@ Annotations: `readOnlyHint=true`, `destructiveHint=false`, `idempotentHint=true`
 | `rules` | `object[]` | Rules of the firewall. |
 | `rules[].direction` | `"in" \| "out"` | Traffic direction of the rule. |
 | `rules[].protocol` | `"tcp" \| "udp" \| "icmp" \| "esp" \| "gre"` | Network protocol of the rule. |
-| `rules[].port` | `string \| null` | Port or port range, or null (icmp, esp, gre, all ports). |
+| `rules[].port` | `string \| null` | Port or port range; 'any' for a tcp/udp rule without a port (all ports); null for icmp, esp and gre. |
 | `rules[].source_ips` | `string[]` | Allowed source addresses (CIDR) for direction 'in'. |
 | `rules[].destination_ips` | `string[]` | Allowed destination addresses (CIDR) for direction 'out'. |
 | `rules[].description` | `string \| null` | Description of the rule (untrusted data), or null. |
@@ -1095,7 +1095,7 @@ Annotations: `readOnlyHint=false`, `destructiveHint=false`, `idempotentHint=fals
 | `rules` | `object[]` | Rules of the firewall. |
 | `rules[].direction` | `"in" \| "out"` | Traffic direction of the rule. |
 | `rules[].protocol` | `"tcp" \| "udp" \| "icmp" \| "esp" \| "gre"` | Network protocol of the rule. |
-| `rules[].port` | `string \| null` | Port or port range, or null (icmp, esp, gre, all ports). |
+| `rules[].port` | `string \| null` | Port or port range; 'any' for a tcp/udp rule without a port (all ports); null for icmp, esp and gre. |
 | `rules[].source_ips` | `string[]` | Allowed source addresses (CIDR) for direction 'in'. |
 | `rules[].destination_ips` | `string[]` | Allowed destination addresses (CIDR) for direction 'out'. |
 | `rules[].description` | `string \| null` | Description of the rule (untrusted data), or null. |
@@ -1135,7 +1135,7 @@ Annotations: `readOnlyHint=false`, `destructiveHint=false`, `idempotentHint=true
 | `rules` | `object[]` | Rules of the firewall. |
 | `rules[].direction` | `"in" \| "out"` | Traffic direction of the rule. |
 | `rules[].protocol` | `"tcp" \| "udp" \| "icmp" \| "esp" \| "gre"` | Network protocol of the rule. |
-| `rules[].port` | `string \| null` | Port or port range, or null (icmp, esp, gre, all ports). |
+| `rules[].port` | `string \| null` | Port or port range; 'any' for a tcp/udp rule without a port (all ports); null for icmp, esp and gre. |
 | `rules[].source_ips` | `string[]` | Allowed source addresses (CIDR) for direction 'in'. |
 | `rules[].destination_ips` | `string[]` | Allowed destination addresses (CIDR) for direction 'out'. |
 | `rules[].description` | `string \| null` | Description of the rule (untrusted data), or null. |

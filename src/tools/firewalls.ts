@@ -153,7 +153,12 @@ const firewallTargetsShape = {
 const ruleOut = z.object({
   direction: z.enum(["in", "out"]).describe("Traffic direction of the rule."),
   protocol: z.enum(["tcp", "udp", "icmp", "esp", "gre"]).describe("Network protocol of the rule."),
-  port: z.string().nullable().describe("Port or port range, or null (icmp, esp, gre, all ports)."),
+  port: z
+    .string()
+    .nullable()
+    .describe(
+      "Port or port range; 'any' for a tcp/udp rule without a port (all ports); null for icmp, esp and gre.",
+    ),
   source_ips: z.array(z.string()).describe("Allowed source addresses (CIDR) for direction 'in'."),
   destination_ips: z
     .array(z.string())

@@ -21,7 +21,7 @@ export interface Cidr {
 
 export type PortSpec =
   | { kind: "none" } // icmp, esp, gre: port is ignored
-  | { kind: "all" } // tcp/udp without port (03 §3.3, not documented)
+  | { kind: "all" } // tcp/udp without port or with port "any" (03 §3.2, 3.3)
   | { kind: "range"; from: number; to: number }
   | { kind: "raw"; text: string }; // unparseable; covers nothing
 
@@ -130,7 +130,8 @@ function toCidr(raw: string): Cidr {
 function toPort(rule: FirewallRule): PortSpec {
   if (rule.protocol !== "tcp" && rule.protocol !== "udp") return { kind: "none" };
   const text = (rule.port ?? "").trim();
-  if (text === "") return { kind: "all" };
+  // Hetzner returns a tcp/udp rule created without port as `port: "any"` (IT-F1, 03 §3.2).
+  if (text === "" || text.toLowerCase() === "any") return { kind: "all" };
   const m = /^(\d{1,5})(?:-(\d{1,5}))?$/.exec(text);
   if (m) {
     const from = Number(m[1]);

@@ -1,4 +1,4 @@
-// Test table 03 §3.7 (F-1..F-23). The sentences of F-8/F-9/F-13/F-14 are checked through the
+// Test table 03 §3.7 (F-1..F-25). The sentences of F-8/F-9/F-13/F-14 are checked through the
 // tool preview in firewalls.test.ts (F-T1, F-T2 and the F-03 sentence tests there).
 import { describe, expect, it } from "vitest";
 import {
@@ -116,6 +116,19 @@ describe("firewall rule diff (03 §3.7)", () => {
     [
       "F-17 a rule without port allows all ports",
       [R("in", "tcp", null, [any4])],
+      [R("in", "tcp", "80", [any4])],
+      [1, 1, 0],
+      [22],
+    ],
+    [
+      "F-24 port any equals a rule without port",
+      [R("in", "tcp", null, [any4])],
+      [R("in", "tcp", "any", [any4])],
+      [0, 0, 1],
+    ],
+    [
+      "F-25 port any allows all ports",
+      [R("in", "tcp", "any", [any4])],
       [R("in", "tcp", "80", [any4])],
       [1, 1, 0],
       [22],
@@ -271,7 +284,12 @@ describe("firewall rule diff (03 §3.7)", () => {
   it("normalises ports and the key", () => {
     expect(normalizeRule(R("in", "tcp", " 80 ", [any4])).key).toBe("in|tcp|80-80|0.0.0.0/0");
     expect(normalizeRule(R("in", "tcp", "", [])).port).toEqual({ kind: "all" });
-    expect(normalizeRule(R("in", "tcp", "any", [])).key).toBe("in|tcp|raw:any|");
+    expect(normalizeRule(R("in", "tcp", "any", [])).key).toBe("in|tcp|all|");
+    expect(normalizeRule(R("in", "udp", " ANY ", [])).port).toEqual({ kind: "all" });
+    expect(normalizeRule(R("in", "tcp", "anything", [])).port).toEqual({
+      kind: "raw",
+      text: "anything",
+    });
     expect(normalizeRule(R("in", "tcp", "0", [])).port).toEqual({ kind: "raw", text: "0" });
     expect(normalizeRule(R("in", "tcp", "30-20", [])).port).toEqual({ kind: "raw", text: "30-20" });
     expect(normalizeRule(R("in", "tcp", "65536", [])).port).toEqual({ kind: "raw", text: "65536" });
@@ -297,6 +315,7 @@ describe("firewall rule diff (03 §3.7)", () => {
     expect(allowsPort([R("out", "tcp", "22", [any4])], 22)).toBe(false);
     expect(allowsPort([R("in", "tcp", "22", ["nonsense"])], 22)).toBe(false);
     expect(allowsPort([], 22)).toBe(false);
+    expect(allowsPort([R("in", "tcp", "any", [any4])], 22)).toBe(true);
   });
 });
 
@@ -307,7 +326,8 @@ describe("describeRule (03 §3.6)", () => {
     [R("in", "tcp", "22", [any6, any4]), "in tcp 22 from 0.0.0.0/0, ::/0"],
     [R("in", "tcp", "1024-5000", ["10.0.0.0/8"]), "in tcp 1024-5000 from 10.0.0.0/8"],
     [R("in", "udp", null, [any4]), "in udp all ports from 0.0.0.0/0"],
-    [R("in", "tcp", "any", [any4]), 'in tcp port "any" from 0.0.0.0/0'],
+    [R("in", "tcp", "any", [any4]), "in tcp all ports from 0.0.0.0/0"],
+    [R("in", "tcp", "anything", [any4]), 'in tcp port "anything" from 0.0.0.0/0'],
     [R("in", "icmp", null, [any4]), "in icmp from 0.0.0.0/0"],
     [R("out", "tcp", "443", [any4]), "out tcp 443 to 0.0.0.0/0"],
     [R("in", "tcp", "22", []), "in tcp 22 from no address"],
