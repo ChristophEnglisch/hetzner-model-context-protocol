@@ -97,6 +97,9 @@ describe("prompts", () => {
     const plain = await promptText("audit_project_security");
     expect(plain).toContain("22, 3389, 3306, 5432, 6379, 27017, 9200");
     expect(plain).toContain("Scope: all servers.");
+    expect(plain).toContain(
+      "exposes that port to the whole internet; a port of 'any' covers all ports. A firewall without any inbound rule drops all inbound traffic.",
+    );
     const scoped = await promptText("audit_project_security", { label_selector: "env=prod" });
     expect(scoped).toContain('"env=prod"');
     const ports = await promptText("audit_project_security", { ports: "22,99999" });

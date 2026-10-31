@@ -57,7 +57,7 @@ Sensitive TCP ports: ${parsePorts(ports).join(", ")}.
 Collect evidence with:
 
 1. server_list (page through all results with page and per_page): for each server note status, public IPv4 and IPv6, the firewalls applied to it and their status, backup_window and protection. Use server_get where the list lacks a field.
-2. firewall_list and firewall_get: the rules and applied_to of every firewall. An inbound tcp rule whose source_ips contain 0.0.0.0/0 or ::/0 and whose port or port range covers a sensitive port exposes that port to the whole internet. A firewall without any inbound rule drops all inbound traffic.
+2. firewall_list and firewall_get: the rules and applied_to of every firewall. An inbound tcp rule whose source_ips contain 0.0.0.0/0 or ::/0 and whose port or port range covers a sensitive port exposes that port to the whole internet; a port of 'any' covers all ports. A firewall without any inbound rule drops all inbound traffic.
 3. For every server, check and report:
    a. no firewall applied although the server has a public IPv4 or IPv6 (high; you cannot see which services run on it, so say so);
    b. a firewall that exposes a sensitive port to 0.0.0.0/0 or ::/0 (high for database and remote-desktop ports; medium for SSH, which should be narrowed to known addresses);
