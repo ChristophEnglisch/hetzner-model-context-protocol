@@ -192,16 +192,24 @@ function isAbortLike(error: unknown, name: string): boolean {
   return typeof error === "object" && error !== null && (error as { name?: unknown }).name === name;
 }
 
-/** Real sleep for production; honours the signal and rejects with its reason. */
+/**
+ * The caller-cancellation error. The MCP SDK aborts request signals with a plain string reason, so
+ * `signal.reason` is not reliably an Error; callers always get a real AbortError (01 §3.5, §4.5).
+ */
+function abortError(): DOMException {
+  return new DOMException("The request was cancelled by the client.", "AbortError");
+}
+
+/** Real sleep for production; honours the signal and rejects with an AbortError. */
 function realSleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(signal.reason);
+      reject(abortError());
       return;
     }
     const onAbort = () => {
       clearTimeout(timer);
-      reject(signal?.reason);
+      reject(abortError());
     };
     const timer = setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
@@ -214,9 +222,9 @@ function realSleep(ms: number, signal?: AbortSignal): Promise<void> {
 /** Lets one caller stop waiting for a shared promise without cancelling it for the others. */
 function withSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(signal.reason);
+  if (signal.aborted) return Promise.reject(abortError());
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason);
+    const onAbort = () => reject(abortError());
     signal.addEventListener("abort", onAbort, { once: true });
     promise.then(
       (v) => {
@@ -291,6 +299,12 @@ export class HttpHetznerGateway implements HetznerGateway {
         });
         text = await response.text();
       } catch (error) {
+        const outcome =
+          timeout.aborted && isAbortLike(error, "TimeoutError")
+            ? "timeout"
+            : options.signal?.aborted || isAbortLike(error, "AbortError")
+              ? "aborted"
+              : "network";
         this.logger.debug("hetzner_request", {
           method,
           path: apiPath,
@@ -298,18 +312,13 @@ export class HttpHetznerGateway implements HetznerGateway {
           attempt,
           durationMs: this.now() - started,
           rateLimitRemaining: this.rateLimitState?.remaining ?? null,
-          error: isAbortLike(error, "TimeoutError")
-            ? "timeout"
-            : isAbortLike(error, "AbortError")
-              ? "aborted"
-              : "network",
+          error: outcome,
         });
         // Own timeout and caller cancellation are never retried; network errors only for GET.
-        if (timeout.aborted || options.signal?.aborted || isAbortLike(error, "AbortError")) {
-          throw error;
-        }
+        if (outcome === "aborted") throw abortError();
+        if (outcome === "timeout" || timeout.aborted) throw error;
         if (method !== "GET" || attempt >= MAX_ATTEMPTS) throw error;
-        await this.sleep(500 * 3 ** (attempt - 1), options.signal);
+        await this.pause(500 * 3 ** (attempt - 1), options.signal);
         continue;
       }
 
@@ -346,7 +355,18 @@ export class HttpHetznerGateway implements HetznerGateway {
       });
       const decision = this.retryDecision(method, error, attempt);
       if (!decision.retry) throw error;
-      await this.sleep(decision.waitMs, options.signal);
+      await this.pause(decision.waitMs, options.signal);
+    }
+  }
+
+  /** Injected sleep, but caller cancellation always surfaces as an AbortError. */
+  private async pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+    if (signal?.aborted) throw abortError();
+    try {
+      await this.sleep(ms, signal);
+    } catch (error) {
+      if (signal?.aborted) throw abortError();
+      throw error;
     }
   }
 
@@ -441,7 +461,7 @@ export class HttpHetznerGateway implements HetznerGateway {
       const delay =
         remaining !== undefined && remaining < LOW_QUOTA ? LOW_QUOTA_DELAY_MS : POLL_SCHEDULE_MS(n);
       if (this.now() - started + delay > options.timeoutMs) return current;
-      await this.sleep(delay, options.signal);
+      await this.pause(delay, options.signal);
 
       const ids = [...new Set(current.filter((a) => a.status === "running").map((a) => a.id))];
       const polled = new Map<number, HetznerAction>();

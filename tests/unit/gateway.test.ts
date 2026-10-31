@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { HetznerApiError, mapHetznerError, ToolError } from "../../src/hetzner/errors.js";
-import { type HttpMethod, MAX_PER_PAGE, path } from "../../src/hetzner/gateway.js";
+import {
+  HttpHetznerGateway,
+  type HttpMethod,
+  MAX_PER_PAGE,
+  path,
+} from "../../src/hetzner/gateway.js";
 import type { HetznerAction } from "../../src/hetzner/types.js";
 import { createLogger } from "../../src/logging.js";
 import { VERSION } from "../../src/version.js";
@@ -526,5 +531,110 @@ describe("HttpHetznerGateway", () => {
       fake.gateway().request("GET", "/nothing", { query: { a: 1 } }),
     ).rejects.toBeInstanceOf(HetznerApiError);
     expect(fake.unmatched).toEqual(["GET /nothing?a=1"]);
+  });
+});
+
+// The MCP SDK aborts the request signal with a plain string reason (Review R-0, B-2).
+describe("caller cancellation with a non-Error abort reason", () => {
+  const REASON = "Client cancelled the request";
+
+  function expectAbortError(error: unknown): void {
+    expect(error).toBeInstanceOf(DOMException);
+    expect((error as DOMException).name).toBe("AbortError");
+    expect(mapHetznerError(error).kind).toBe("cancelled");
+  }
+
+  it("request() throws an AbortError and logs aborted", async () => {
+    const fake = new FakeHetzner().on("GET", "/servers", () => new Promise(() => {}));
+    const lines: string[] = [];
+    const logger = createLogger({ level: "debug", write: (l) => lines.push(l) });
+    const controller = new AbortController();
+    const pending = fake
+      .gateway({}, logger)
+      .request("GET", "/servers", { signal: controller.signal });
+    controller.abort(REASON);
+    expectAbortError(await pending.catch((e: unknown) => e));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('"error":"aborted"');
+
+    const pre = new AbortController();
+    pre.abort(REASON);
+    const fake2 = new FakeHetzner().on("GET", "/servers", ok({ servers: [] }));
+    expectAbortError(
+      await fake2
+        .gateway()
+        .request("GET", "/servers", { signal: pre.signal })
+        .catch((e: unknown) => e),
+    );
+    expect(fake2.calls).toHaveLength(0);
+  });
+
+  it("request() throws an AbortError when cancelled during a retry wait", async () => {
+    const controller = new AbortController();
+    const fake = new FakeHetzner().on("GET", "/servers", () => {
+      controller.abort(REASON);
+      return apiError(503, "unavailable");
+    });
+    const error = await fake
+      .gateway()
+      .request("GET", "/servers", { signal: controller.signal })
+      .catch((e: unknown) => e);
+    expectAbortError(error);
+    expect(fake.calls).toHaveLength(1);
+
+    // the real sleep (no injected sleep) behaves the same
+    const real = new FakeHetzner().on("GET", "/servers", apiError(503, "unavailable"));
+    const gw = new HttpHetznerGateway(
+      { apiUrl: real.apiUrl, token: "fake-token", timeoutMs: 30_000 },
+      { fetch: real.fetch },
+    );
+    const c2 = new AbortController();
+    const pending = gw.request("GET", "/servers", { signal: c2.signal });
+    setTimeout(() => c2.abort(REASON), 5);
+    expectAbortError(await pending.catch((e: unknown) => e));
+    expect(real.calls).toHaveLength(1);
+  });
+
+  it("waitForActions throws an AbortError", async () => {
+    const pre = new AbortController();
+    pre.abort(REASON);
+    const fake = new FakeHetzner().on("GET", "/actions", ok({ actions: [action(1)] }));
+    expectAbortError(
+      await fake
+        .gateway()
+        .waitForActions([action(1)], { timeoutMs: 60_000, signal: pre.signal })
+        .catch((e: unknown) => e),
+    );
+    expect(fake.calls).toHaveLength(0);
+
+    const during = new AbortController();
+    const polling = new FakeHetzner().on("GET", "/actions", () => {
+      during.abort(REASON);
+      return ok({ actions: [action(1)] });
+    });
+    expectAbortError(
+      await polling
+        .gateway()
+        .waitForActions([action(1)], { timeoutMs: 60_000, signal: during.signal })
+        .catch((e: unknown) => e),
+    );
+    expect(polling.calls).toHaveLength(1);
+  });
+
+  it("getPricing throws an AbortError for the cancelled caller only", async () => {
+    const body = fixture<{ pricing: Record<string, unknown> }>("get_pricing");
+    const fake = new FakeHetzner().on("GET", "/pricing", ok(body));
+    const gw = fake.gateway();
+    const controller = new AbortController();
+    const cancelled = gw.getPricing({ signal: controller.signal });
+    const other = gw.getPricing();
+    controller.abort(REASON);
+    expectAbortError(await cancelled.catch((e: unknown) => e));
+    await expect(other).resolves.toEqual(body.pricing);
+
+    const pre = new AbortController();
+    pre.abort(REASON);
+    fake.clock += 3_600_001;
+    expectAbortError(await gw.getPricing({ signal: pre.signal }).catch((e: unknown) => e));
   });
 });
