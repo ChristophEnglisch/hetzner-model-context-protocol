@@ -1,0 +1,136 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ChristophEnglisch/hetzner-model-context-protocol",
+  "description": "Manage Hetzner Cloud servers, SSH keys, firewalls and volumes through the Hetzner Cloud API.",
+  "repository": {
+    "url": "https://github.com/ChristophEnglisch/hetzner-model-context-protocol",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "hetzner-model-context-protocol",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "HETZNER_TOKEN",
+          "description": "API token of the Hetzner Cloud project (each token belongs to exactly one project). HCLOUD_TOKEN is accepted as an alias; set only one of them.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "HETZNER_API_URL",
+          "description": "Hetzner Cloud API base URL; https is required, http only for localhost. The token is sent to this host.",
+          "isRequired": false,
+          "format": "string",
+          "default": "https://api.hetzner.cloud/v1"
+        },
+        {
+          "name": "HETZNER_MCP_PROJECT_NAME",
+          "description": "Name of the project in log lines (a-z, 0-9, '-', max 32)",
+          "isRequired": false,
+          "format": "string",
+          "default": "default"
+        },
+        {
+          "name": "HETZNER_MCP_READ_ONLY",
+          "description": "If true, only read-only tools are registered",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "false"
+        },
+        {
+          "name": "HETZNER_MCP_TOOLSETS",
+          "description": "Comma-separated enabled toolsets (core, info, actions, ssh_keys, firewalls, storage) or all",
+          "isRequired": false,
+          "format": "string",
+          "default": "core,info,actions,ssh_keys"
+        },
+        {
+          "name": "HETZNER_MCP_LABEL_SCOPE",
+          "description": "Changes are limited to resources carrying all of these labels, comma-separated key=value; empty means no restriction",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "HETZNER_MCP_IAC_POLICY",
+          "description": "Handling of resources with an infrastructure-as-code label: off, warn or block",
+          "isRequired": false,
+          "format": "string",
+          "default": "warn",
+          "choices": [
+            "off",
+            "warn",
+            "block"
+          ]
+        },
+        {
+          "name": "HETZNER_MCP_IAC_LABELS",
+          "description": "Labels that mark a resource as managed by infrastructure code, comma-separated key=value, any one matches",
+          "isRequired": false,
+          "format": "string",
+          "default": "managed-by=terraform,managed_by=terraform"
+        },
+        {
+          "name": "HETZNER_MCP_REQUIRE_CONFIRMATION",
+          "description": "If true, destructive and cost-incurring tools require confirm=true",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "true"
+        },
+        {
+          "name": "HETZNER_MCP_ALLOW_COSTS",
+          "description": "If false, tools that can start or raise recurring costs are not registered",
+          "isRequired": false,
+          "format": "boolean",
+          "default": "true"
+        },
+        {
+          "name": "HETZNER_MCP_MAX_MONTHLY_COST",
+          "description": "Reject a single call whose added net monthly cost is above this amount, in the currency of the Hetzner pricing endpoint; empty means no limit",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "HETZNER_MCP_FIREWALL_GUARD_PORTS",
+          "description": "Comma-separated TCP ports (at most 10) covered by the firewall lock-out warning",
+          "isRequired": false,
+          "format": "string",
+          "default": "22"
+        },
+        {
+          "name": "HETZNER_MCP_TIMEOUT_MS",
+          "description": "HTTP timeout per request in milliseconds (1000 to 300000)",
+          "isRequired": false,
+          "format": "number",
+          "default": "30000"
+        },
+        {
+          "name": "HETZNER_MCP_ACTION_WAIT_MS",
+          "description": "How long a tool waits for Hetzner actions in milliseconds (0 to 600000, 0 = never wait)",
+          "isRequired": false,
+          "format": "number",
+          "default": "50000"
+        },
+        {
+          "name": "HETZNER_MCP_LOG_LEVEL",
+          "description": "Log level written to stderr",
+          "isRequired": false,
+          "format": "string",
+          "default": "info",
+          "choices": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ]
+        }
+      ]
+    }
+  ]
+}

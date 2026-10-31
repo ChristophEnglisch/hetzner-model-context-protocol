@@ -1,0 +1,252 @@
+name: CI
+
+# Jobs run only when files they depend on change (see the "changes" job).
+# A docs-only PR therefore runs just "changes" and "CI result" (plus the cheap
+# "Diagrams" check when it touches README.md or docs/diagrams/). Unknown paths,
+# changes to this file, the weekly schedule and manual runs run everything.
+# The contract job runs the built server against a local HTTP stub: no secrets, no outbound network.
+# Stages 3 and 4 (real Hetzner API, with a token) are manual and not part of CI.
+# "CI result" aggregates all jobs and is the one check to mark as required.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly full run: catches new advisories (npm audit) and upstream drift
+    # (Node) even when the repository itself does not change.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Only PR runs are superseded by newer pushes. A cancelled run on main would
+  # leave its commits untested, because the next run only diffs its own range.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+  NPM_CONFIG_FUND: "false"
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      lint: ${{ steps.filter.outputs.lint }}
+      unit: ${{ steps.filter.outputs.unit }}
+      contract: ${{ steps.filter.outputs.contract }}
+      smoke: ${{ steps.filter.outputs.smoke }}
+      audit: ${{ steps.filter.outputs.audit }}
+      diagrams: ${{ steps.filter.outputs.diagrams }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # On pull_request HEAD is the merge commit; HEAD^1 is the current base.
+          fetch-depth: 2
+          persist-credentials: false
+      - id: filter
+        name: Classify changed files
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          full=false
+          changed=""
+          case "$EVENT" in
+            pull_request)
+              changed="$(git diff --name-only HEAD^1 HEAD)" ;;
+            push)
+              # New branch or rewritten history: no usable "before", test everything.
+              if [[ "$BEFORE" =~ ^0+$ ]] || ! git fetch --no-tags --depth=1 origin "$BEFORE" 2>/dev/null; then
+                full=true
+              else
+                changed="$(git diff --name-only "$BEFORE" "$SHA")"
+              fi ;;
+            *)
+              full=true ;;
+          esac
+
+          lint=false unit=false contract=false smoke=false audit=false diagrams=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              .github/workflows/ci.yml)
+                full=true ;;
+              package.json|package-lock.json)
+                lint=true unit=true contract=true smoke=true audit=true ;;
+              src/*|tsconfig.json|tsconfig.build.json)
+                lint=true unit=true contract=true smoke=true ;;
+              # The stub (contract job) reads the fixtures through tests/helpers/fixtures.ts.
+              tests/helpers/*|tests/fixtures/*)
+                lint=true unit=true contract=true ;;
+              tests/unit/*|vitest.config.ts)
+                lint=true unit=true ;;
+              tests/stub/*|tests/contract/*|vitest.contract.config.ts)
+                lint=true contract=true ;;
+              tests/smoke/*)
+                lint=true smoke=true ;;
+              # The diagrams job checks the SVGs against their sources and the README embeds.
+              scripts/render-diagrams.mjs)
+                lint=true diagrams=true ;;
+              README.md|docs/diagrams/*)
+                diagrams=true ;;
+              # docs:check (lint job) regenerates this file from the server.
+              scripts/*|biome.json|docs/tools-reference.md)
+                lint=true ;;
+              # Nothing in CI reads these.
+              docs/*|*.md|LICENSE|.editorconfig|.env.example|.gitignore|.nvmrc|server.json|release-please-config.json|.release-please-manifest.json|.github/ISSUE_TEMPLATE/*|renovate.json|.github/workflows/release.yml)
+                ;;
+              # Unknown path: rather run too much than miss something.
+              *)
+                echo "::notice::Unclassified path $f, running all jobs."
+                full=true ;;
+            esac
+          done <<< "$changed"
+
+          echo "Changed files:"; echo "${changed:-(none, full run)}" | sed 's/^/  /'
+          if [ "$full" = true ]; then
+            lint=true unit=true contract=true smoke=true audit=true diagrams=true
+          fi
+          printf '%s\n' "lint=$lint" "unit=$unit" "contract=$contract" "smoke=$smoke" "audit=$audit" \
+            "diagrams=$diagrams" | tee -a "$GITHUB_OUTPUT"
+
+  lint-typecheck:
+    name: Lint & typecheck
+    needs: changes
+    if: ${{ needs.changes.outputs.lint == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run docs:check
+
+  diagrams:
+    name: Diagrams
+    needs: changes
+    if: ${{ needs.changes.outputs.diagrams == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      # Compares the source stamps only, so neither npm ci nor a browser is needed.
+      - run: npm run docs:diagrams:check
+
+  unit:
+    name: Unit (Node ${{ matrix.node }})
+    needs: changes
+    if: ${{ needs.changes.outputs.unit == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  contract:
+    name: Contract (stub, Node ${{ matrix.node }})
+    needs: [changes, lint-typecheck, unit]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.contract == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # No secrets: the built server talks to an HTTP stub on 127.0.0.1 with a dummy token.
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:contract
+
+  build-smoke:
+    name: Build & pack smoke (Node ${{ matrix.node }})
+    needs: [changes, lint-typecheck, unit]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.smoke == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:smoke
+
+  audit:
+    name: npm audit (production)
+    needs: changes
+    if: ${{ needs.changes.outputs.audit == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm audit --omit=dev --audit-level=high
+
+  ci-result:
+    name: CI result
+    needs: [changes, lint-typecheck, diagrams, unit, contract, build-smoke, audit]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check job results
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "Job results: $RESULTS"
+          # "skipped" means the job was not affected by this change and is fine.
+          if echo "$RESULTS" | grep -qE '"(failure|cancelled)"'; then
+            echo "::error::At least one CI job failed or was cancelled."
+            exit 1
+          fi
