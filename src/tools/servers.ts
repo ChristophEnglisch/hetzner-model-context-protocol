@@ -542,6 +542,15 @@ interface Labelled {
   labels: Labels;
 }
 
+/**
+ * OE-39 (R-2 SEC-01): the preview names every SSH key as passed, so the user sees which keys get root
+ * access before confirming. Names via quoteName, numeric IDs as a number; no extra request.
+ */
+const sshKeysPart = (keys: readonly string[]): string => {
+  const shown = keys.map((k) => (/^[0-9]+$/.test(k) ? k : quoteName(k)));
+  return `${keys.length === 1 ? "SSH key" : "SSH keys"} ${shown.join(", ")}`;
+};
+
 const serverCreate = defineTool({
   name: "server_create",
   title: "Create server",
@@ -638,7 +647,7 @@ const serverCreate = defineTool({
       `type ${quoteName(args.server_type)}`,
       `location ${quoteName(args.location)}`,
       `image ${quoteName(args.image)}`,
-      `${args.ssh_keys.length} SSH key(s)`,
+      sshKeysPart(args.ssh_keys),
     ];
     if (args.volumes?.length) parts.push(`${args.volumes.length} volume(s)`);
     if (args.firewalls?.length) parts.push(`${args.firewalls.length} firewall(s)`);

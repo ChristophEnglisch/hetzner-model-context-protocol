@@ -573,7 +573,7 @@ describe("server_create", () => {
     const res = await t.call("server_create", CREATE);
     expect(res.isError).toBe(true);
     expect(textOf(res)).toMatch(/^Confirmation required\. This would: create server "web-1"/);
-    expect(textOf(res)).toContain("1 SSH key(s)");
+    expect(textOf(res)).toContain('SSH key "admin"');
     expect(textOf(res)).toContain("Estimated cost:");
     expect(posts(t, "/servers")).toBe(0);
   });
@@ -584,7 +584,7 @@ describe("server_create", () => {
     const res = await t.call("server_create", CREATE);
     expect(outcomeOf(t)).toBe("confirmation_required");
     expect(textOf(res)).toBe(
-      `Confirmation required. This would: create server "web-1" (type "cpx22", location "fsn1", image "ubuntu-24.04", 1 SSH key(s), without public IPv6). ${E1_LINE} Nothing was changed. Ask the user for approval, then call this tool again with confirm: true.`,
+      `Confirmation required. This would: create server "web-1" (type "cpx22", location "fsn1", image "ubuntu-24.04", SSH key "admin", without public IPv6). ${E1_LINE} Nothing was changed. Ask the user for approval, then call this tool again with confirm: true.`,
     );
     expect(posts(t, "/servers")).toBe(0);
   });
@@ -613,8 +613,26 @@ describe("server_create", () => {
       start_after_create: false,
     });
     expect(textOf(res)).toContain(
-      'create server "web-1" (type "cpx22", location "fsn1", image "ubuntu-24.04", 2 SSH key(s), 1 volume(s), 2 firewall(s), with cloud-init user data (14 bytes), without public IPv4, not started after creation). Estimated cost: unknown (Hetzner lists no price for a Primary IPv6 in location "fsn1").',
+      'create server "web-1" (type "cpx22", location "fsn1", image "ubuntu-24.04", SSH keys "a", "b", 1 volume(s), 2 firewall(s), with cloud-init user data (14 bytes), without public IPv4, not started after creation). Estimated cost: unknown (Hetzner lists no price for a Primary IPv6 in location "fsn1").',
     );
+  });
+
+  it("server_create preview names every SSH key (OE-39)", async () => {
+    const t = await start();
+    t.fake.on("GET", "/pricing", pricingReply());
+    const res = await t.call("server_create", {
+      ...CREATE,
+      ssh_keys: ["laptop", "12345", 'x" key'],
+    });
+    expect(textOf(res)).toContain(
+      'image "ubuntu-24.04", SSH keys "laptop", 12345, "x\\" key", without public IPv6).',
+    );
+    // Control characters in a key name never reach the preview: the schema rejects them first.
+    const bad = await t.call("server_create", { ...CREATE, ssh_keys: ["evil\u0007key\u202e"] });
+    expect(bad.isError).toBe(true);
+    expect(textOf(bad)).not.toContain("Confirmation required");
+    expect(t.fake.requests("GET", "/pricing")).toHaveLength(1);
+    expect(posts(t, "/servers")).toBe(0);
   });
 
   it("previews load pricing once per process (E-T5)", async () => {
