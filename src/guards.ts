@@ -2,7 +2,7 @@
 // 01 §5.1. Protection is deliberately not a guard: Hetzner refuses protected operations itself.
 
 import type { Config } from "./config.js";
-import { ToolError } from "./hetzner/errors.js";
+import { isControlChar, ToolError } from "./hetzner/errors.js";
 import type { Labels } from "./hetzner/types.js";
 import { formatTerms, matchesAll, matchingTerm, splitSelector } from "./labels.js";
 
@@ -14,11 +14,9 @@ export interface GuardedResource {
   readonly labels: Labels;
 }
 
+/** Control characters as defined by isControlChar (OE-24), including C1, line separators and bidi controls. */
 export function hasControlChars(value: string): boolean {
-  for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    if (code < 0x20 || code === 0x7f) return true;
-  }
+  for (const char of value) if (isControlChar(char)) return true;
   return false;
 }
 
@@ -43,9 +41,14 @@ export function assertPathSegment(value: string, label = "value"): void {
   }
 }
 
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
+/** English display names for `{Type}` in guard texts (OE-23); `{type}` stays the raw value. */
+const DISPLAY_NAMES: Readonly<Record<ResourceType, string>> = {
+  server: "Server",
+  ssh_key: "SSH key",
+  firewall: "Firewall",
+  volume: "Volume",
+  image: "Image",
+};
 
 /**
  * Throws ToolError("guard") if a resource is outside the label scope or (iacPolicy "block") carries an IaC marker.
@@ -72,7 +75,7 @@ export function assertMutable(
     if (config.iacPolicy === "block") {
       throw new ToolError(
         "guard",
-        `${capitalize(r.type)} ${r.id} carries the infrastructure-as-code marker '${marker.key}=${marker.value}'. Changes are blocked (HETZNER_MCP_IAC_POLICY=block); change it in the infrastructure code instead. Nothing was changed.`,
+        `${DISPLAY_NAMES[r.type]} ${r.id} carries the infrastructure-as-code marker '${marker.key}=${marker.value}'. Changes are blocked (HETZNER_MCP_IAC_POLICY=block); change it in the infrastructure code instead. Nothing was changed.`,
       );
     }
     warnings.push(

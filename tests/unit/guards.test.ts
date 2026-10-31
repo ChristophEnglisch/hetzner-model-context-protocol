@@ -85,6 +85,13 @@ describe("assertMutable", () => {
     },
   );
 
+  it("names resource types in the block text with display names", () => {
+    const config = policy("block", []);
+    const key: GuardedResource = { type: "ssh_key", id: 5, labels: { "managed-by": "terraform" } };
+    expect(guardError(() => assertMutable(config, [key])).message).toMatch(/^SSH key 5 carries /);
+    expect(assertMutable(policy("warn", []), [key])[0]).toMatch(/^Warning: ssh_key 5 carries /);
+  });
+
   it("checks the scope before IaC markers", () => {
     const error = guardError(() =>
       assertMutable(policy("block"), [server({ "managed-by": "terraform" })]),
@@ -165,16 +172,26 @@ describe("requireConfirmation", () => {
 });
 
 describe("assertPathSegment", () => {
-  it.each(["", ".", "..", "a/b", "a\\b", "../x", "a\nb", "a\u0000b", "a\u007fb", "x".repeat(256)])(
-    "assertPathSegment rejects traversal and control characters: %j",
-    (value) => {
-      const error = guardError(() => assertPathSegment(value, "name"));
-      expect(error.kind).toBe("guard");
-      expect(error.message).toBe(
-        "Invalid name: must be non-empty and must not contain '/', '\\', '..' or control characters.",
-      );
-    },
-  );
+  it.each([
+    "",
+    ".",
+    "..",
+    "a/b",
+    "a\\b",
+    "../x",
+    "a\nb",
+    "a\u0000b",
+    "a\u007fb",
+    "a\u202eb",
+    "a\u2028b",
+    "x".repeat(256),
+  ])("assertPathSegment rejects traversal and control characters: %j", (value) => {
+    const error = guardError(() => assertPathSegment(value, "name"));
+    expect(error.kind).toBe("guard");
+    expect(error.message).toBe(
+      "Invalid name: must be non-empty and must not contain '/', '\\', '..' or control characters.",
+    );
+  });
 
   it.each(["web-1", "my key", "a.b", "x".repeat(255)])("accepts %j", (value) => {
     expect(() => assertPathSegment(value)).not.toThrow();
@@ -184,5 +201,9 @@ describe("assertPathSegment", () => {
     expect(hasControlChars("a\tb")).toBe(true);
     expect(hasControlChars("a\u007f")).toBe(true);
     expect(hasControlChars("äöü …")).toBe(false);
+    for (const ch of ["\u0085", "\u2028", "\u2029", "\u200e", "\u202e", "\u2066", "\u2069"]) {
+      expect(hasControlChars(`a${ch}b`)).toBe(true);
+    }
+    expect(hasControlChars("a\u00a0b")).toBe(false);
   });
 });

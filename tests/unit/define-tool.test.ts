@@ -684,6 +684,7 @@ describe("shared helpers", () => {
   it("quotes names for previews", () => {
     expect(quoteName("web-1")).toBe('"web-1"');
     expect(quoteName('a\n"b"\u0007')).toBe('"a\\"b\\""');
+    expect(quoteName("a\u0085b\u2028c\u202ed\u2066e")).toBe('"abcde"');
     const long = quoteName("x".repeat(100));
     expect(JSON.parse(long)).toBe(`${"x".repeat(63)}…`);
     expect([...JSON.parse(quoteName("ä".repeat(64)))]).toHaveLength(64);

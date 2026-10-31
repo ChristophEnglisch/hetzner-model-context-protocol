@@ -3,6 +3,7 @@ import {
   HetznerApiError,
   type HetznerApiErrorInit,
   mapHetznerError,
+  sanitizeApiText,
   ToolError,
   type ToolErrorKind,
 } from "../../src/hetzner/errors.js";
@@ -496,5 +497,11 @@ describe("mapHetznerError", () => {
     }
     const api = apiErr({ status: 503, code: "unavailable", apiMessage: "down" });
     expect(api.message).not.toContain("down");
+  });
+});
+
+describe("sanitizeApiText", () => {
+  it("replaces C1, line separators and bidi controls with spaces (OE-24)", () => {
+    expect(sanitizeApiText("a\u0085b\u2028c\u202ed\u200fe")).toBe("a b c d e");
   });
 });

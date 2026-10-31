@@ -399,17 +399,12 @@ function describeFailure(error: unknown): Record<string, unknown> {
 }
 
 /**
- * Prepares a caught error for mapHetznerError:
- * - The SDK aborts ctx.signal with the client's `reason` (a string, not an AbortError), and fetch
- *   rejects with exactly that reason; a cancelled call would otherwise map to "unexpected" (T-D15).
- * - A ZodError is a programming error whose message carries values; it must not reach the
- *   classification by message text and always maps to "unexpected".
+ * A ZodError is a programming error whose message carries values; it must not reach the
+ * classification by message text and always maps to "unexpected". Client cancellation arrives as a
+ * real AbortError from the gateway.
  */
-function classifiable(error: unknown, signal: AbortSignal): unknown {
-  if (error instanceof ToolError) return error;
-  if (signal.aborted) return new DOMException("The operation was aborted.", "AbortError");
-  if (error instanceof z.ZodError) return undefined;
-  return error;
+function classifiable(error: unknown): unknown {
+  return error instanceof z.ZodError ? undefined : error;
 }
 
 // --- defineTool (6.7) -------------------------------------------------------------------------
@@ -511,7 +506,7 @@ export function defineTool<I extends z.ZodObject, O extends z.ZodObject, T = und
             const parsed = outputSchema.parse(data); // strips unknown keys (K-5); failure = programming error
             return { content: [{ type: "text", text: summary }], structuredContent: parsed };
           } catch (error) {
-            const te = mapHetznerError(classifiable(error, ctx.signal), {
+            const te = mapHetznerError(classifiable(error), {
               apiUrl: ctx.config.apiUrl,
               timeoutMs: ctx.config.timeoutMs,
             });
