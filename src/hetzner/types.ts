@@ -38,5 +38,64 @@ export interface HetznerErrorBody {
  */
 export type HetznerPricing = Readonly<Record<string, unknown>>;
 
+/**
+ * Server object (R§2.9, 02-tool-specs/core.md): only fields that guards, previews or mappers read.
+ * Never read: `datacenter`, `server_type.deprecated`/`deprecation`, `image.deprecated`.
+ * `volumes`, `load_balancers`, `placement_group` and `public_net.firewalls` are not `required` in the spec.
+ */
+export interface HetznerServer {
+  id: number;
+  name: string;
+  status:
+    | "running"
+    | "initializing"
+    | "starting"
+    | "stopping"
+    | "off"
+    | "deleting"
+    | "migrating"
+    | "rebuilding"
+    | "unknown";
+  created: string;
+  public_net: {
+    ipv4: { id?: number; ip: string; blocked: boolean } | null;
+    ipv6: { id?: number; ip: string; blocked: boolean } | null;
+    floating_ips: number[];
+    firewalls?: { id: number; status: "applied" | "pending" }[];
+  };
+  private_net: { network: number; ip: string; alias_ips: string[] }[];
+  server_type: {
+    id: number;
+    name: string;
+    cores: number;
+    memory: number;
+    disk: number;
+    cpu_type: string;
+    architecture: string;
+    storage_type: string;
+  };
+  location: { id: number; name: string };
+  image: {
+    id: number;
+    name: string | null;
+    type: string;
+    os_flavor: string;
+    os_version: string | null;
+  } | null;
+  iso: { id: number; name: string | null } | null;
+  rescue_enabled: boolean;
+  locked: boolean;
+  backup_window: string | null;
+  outgoing_traffic: number | null;
+  ingoing_traffic: number | null;
+  included_traffic: number | null;
+  protection: { delete: boolean; rebuild: boolean };
+  labels: Labels;
+  volumes?: number[];
+  load_balancers?: number[];
+  primary_disk_size: number;
+  placement_group?: { id: number } | null;
+}
+
 // Server, SshKey, Firewall, Volume, Image, ServerType, Location: added by the domain packages
 // (AP-10/11/12/15/17), each with `labels: Labels` and – where present – `protection`.
