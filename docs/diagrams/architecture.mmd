@@ -1,0 +1,17 @@
+flowchart LR
+    subgraph Host["Your machine"]
+        Client["MCP client<br/>(Claude Desktop, Claude Code,<br/>VS Code, Cursor, ...)"]
+        subgraph Server["hetzner-model-context-protocol (Node.js)"]
+            Guards["Guards<br/>read-only, label scope, IaC check,<br/>cost limit, confirmation"]
+            Toolsets["Toolsets, prompts, resources<br/>core, info, actions, ssh_keys,<br/>firewalls, storage"]
+            Gateway["Gateway<br/>retries, action polling"]
+            Guards --> Toolsets --> Gateway
+        end
+        Client <-->|"JSON-RPC over stdio"| Guards
+    end
+
+    subgraph HZ["Hetzner Cloud"]
+        Api["Cloud API<br/>api.hetzner.cloud/v1"]
+    end
+
+    Gateway -->|"HTTPS, Bearer API token<br/>(one project)"| Api

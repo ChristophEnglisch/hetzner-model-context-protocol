@@ -1,0 +1,21 @@
+sequenceDiagram
+    autonumber
+    actor User
+    participant LLM as MCP client / LLM
+    participant MCP as Hetzner MCP server
+    participant HZ as Hetzner Cloud API
+
+    User->>LLM: "Delete server web-1"
+    LLM->>MCP: server_delete (id)
+    MCP->>HZ: GET server (for guards and preview)
+    HZ-->>MCP: server data
+    MCP-->>LLM: isError, "Confirmation required. This would: delete server web-1 permanently ... Nothing was changed."
+    LLM->>User: "This will permanently delete web-1. Proceed?"
+    User->>LLM: "Yes"
+    LLM->>MCP: server_delete (id, confirm: true)
+    MCP->>HZ: DELETE server
+    HZ-->>MCP: action (running)
+    MCP->>HZ: poll action until it finishes (wait)
+    HZ-->>MCP: action success
+    MCP-->>LLM: server_id, actions[status success]
+    LLM-->>User: "Server web-1 was deleted."
