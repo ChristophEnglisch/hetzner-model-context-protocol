@@ -1,10 +1,29 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { ConfigError, collectSecrets, loadConfig } from "./config.js";
+import { type Config, ConfigError, collectSecrets, loadConfig } from "./config.js";
 import { HttpHetznerGateway } from "./hetzner/gateway.js";
+import { formatTerms } from "./labels.js";
 import { createLogger } from "./logging.js";
 import { createServer } from "./server.js";
 import { VERSION } from "./version.js";
+
+/** Fields of the startup log line (01 §2.4). Never contains the token. */
+export function startupFields(config: Config, version: string): Record<string, unknown> {
+  return {
+    version,
+    apiUrl: config.apiUrl,
+    project: config.projects[0].name,
+    tokenSource: config.tokenSource,
+    readOnly: config.readOnly,
+    toolsets: [...config.toolsets],
+    labelScope: formatTerms(config.labelScope),
+    iacPolicy: config.iacPolicy,
+    allowCosts: config.allowCosts,
+    ...(config.maxMonthlyCost !== undefined && { maxMonthlyCost: config.maxMonthlyCost }),
+  };
+}
 
 function main(): void {
   let config: ReturnType<typeof loadConfig>;
@@ -28,14 +47,7 @@ function main(): void {
   const handle = serveStdio(() => createServer({ config, gateway, logger }), {
     onerror: (error) => logger.error("Transport error", { error: error.message }),
   });
-  logger.info("hetzner-model-context-protocol started", {
-    version: VERSION,
-    apiUrl: config.apiUrl,
-    project: config.projects[0].name,
-    readOnly: config.readOnly,
-    toolsets: [...config.toolsets],
-    allowCosts: config.allowCosts,
-  });
+  logger.info("hetzner-model-context-protocol started", startupFields(config, VERSION));
 
   const shutdown = (): void => {
     handle.close().finally(() => process.exit(0));
@@ -44,4 +56,15 @@ function main(): void {
   process.on("SIGTERM", shutdown);
 }
 
-main();
+/** True when this file is the process entry point (also through the npm bin symlink). */
+function isEntryPoint(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) main();
