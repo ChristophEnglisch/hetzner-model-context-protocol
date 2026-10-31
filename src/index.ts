@@ -1,29 +1,10 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { type Config, ConfigError, collectSecrets, loadConfig } from "./config.js";
+import { ConfigError, collectSecrets, loadConfig, startupFields } from "./config.js";
 import { HttpHetznerGateway } from "./hetzner/gateway.js";
-import { formatTerms } from "./labels.js";
 import { createLogger } from "./logging.js";
 import { createServer } from "./server.js";
 import { VERSION } from "./version.js";
-
-/** Fields of the startup log line (01 §2.4). Never contains the token. */
-export function startupFields(config: Config, version: string): Record<string, unknown> {
-  return {
-    version,
-    apiUrl: config.apiUrl,
-    project: config.projects[0].name,
-    tokenSource: config.tokenSource,
-    readOnly: config.readOnly,
-    toolsets: [...config.toolsets],
-    labelScope: formatTerms(config.labelScope),
-    iacPolicy: config.iacPolicy,
-    allowCosts: config.allowCosts,
-    ...(config.maxMonthlyCost !== undefined && { maxMonthlyCost: config.maxMonthlyCost }),
-  };
-}
 
 function main(): void {
   let config: ReturnType<typeof loadConfig>;
@@ -56,15 +37,4 @@ function main(): void {
   process.on("SIGTERM", shutdown);
 }
 
-/** True when this file is the process entry point (also through the npm bin symlink). */
-function isEntryPoint(): boolean {
-  const entry = process.argv[1];
-  if (entry === undefined) return false;
-  try {
-    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
-  } catch {
-    return false;
-  }
-}
-
-if (isEntryPoint()) main();
+main();

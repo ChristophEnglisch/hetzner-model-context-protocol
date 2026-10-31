@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseLabelTerms } from "./labels.js";
+import { formatTerms, parseLabelTerms } from "./labels.js";
 import { LOG_LEVELS, type LogLevel } from "./logging.js";
 
 export const TOOLSET_NAMES = [
@@ -333,4 +333,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 /** Values masked literally in every log line. */
 export function collectSecrets(config: Pick<Config, "projects">): string[] {
   return config.projects.map((project) => project.token);
+}
+
+/** Fields of the startup log line (01 §2.4). Never contains the token. */
+export function startupFields(config: Config, version: string): Record<string, unknown> {
+  return {
+    version,
+    apiUrl: config.apiUrl,
+    project: config.projects[0].name,
+    tokenSource: config.tokenSource,
+    readOnly: config.readOnly,
+    toolsets: [...config.toolsets],
+    labelScope: formatTerms(config.labelScope),
+    iacPolicy: config.iacPolicy,
+    allowCosts: config.allowCosts,
+    ...(config.maxMonthlyCost !== undefined && { maxMonthlyCost: config.maxMonthlyCost }),
+  };
 }

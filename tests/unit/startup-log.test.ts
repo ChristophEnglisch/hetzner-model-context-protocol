@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { startupFields } from "../../src/index.js";
+import { startupFields } from "../../src/config.js";
 import { makeConfig, TEST_TOKEN } from "../helpers/fakes.js";
 
 describe("startup log fields", () => {
