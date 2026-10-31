@@ -43,6 +43,7 @@
     "prepublishOnly": "npm run clean && npm run build && npm test",
     "test:smoke": "npm run build && node tests/smoke/pack-smoke.mjs",
     "test:all": "npm test && npm run test:smoke",
+    "fixtures:update": "node scripts/extract-fixtures.mjs",
     "docs:tools": "npm run build && node scripts/generate-tools-reference.mjs",
     "docs:check": "npm run build && node scripts/generate-tools-reference.mjs --check",
     "docs:diagrams": "node scripts/render-diagrams.mjs",

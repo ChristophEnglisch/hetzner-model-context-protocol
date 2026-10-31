@@ -1,0 +1,137 @@
+{
+  "$source": "cloud.spec.json etag W/\"3614ad-1a17db8d838\" 2026-10-27",
+  "load_balancers": [
+    {
+      "algorithm": {
+        "type": "round_robin"
+      },
+      "created": "2016-01-30T23:55:00Z",
+      "id": 42,
+      "included_traffic": 10000,
+      "ingoing_traffic": 1,
+      "labels": {
+        "environment": "prod",
+        "example.com/my": "label",
+        "just-a-key": ""
+      },
+      "load_balancer_type": {
+        "deprecated": "2016-01-30T23:50:00Z",
+        "deprecation": {
+          "announced": "2023-06-01T00:00:00Z",
+          "unavailable_after": "2023-09-01T00:00:00Z"
+        },
+        "description": "LB11",
+        "id": 1,
+        "max_assigned_certificates": 10,
+        "max_connections": 20000,
+        "max_services": 5,
+        "max_targets": 25,
+        "name": "lb11",
+        "prices": [
+          {
+            "included_traffic": 654321,
+            "location": "fsn1",
+            "price_hourly": {
+              "gross": "1.1900",
+              "net": "1.0000"
+            },
+            "price_monthly": {
+              "gross": "1.1900",
+              "net": "1.0000"
+            },
+            "price_per_tb_traffic": {
+              "gross": "1.1900",
+              "net": "1.0000"
+            }
+          }
+        ]
+      },
+      "location": {
+        "city": "Falkenstein",
+        "country": "DE",
+        "description": "Falkenstein DC Park 1",
+        "id": 42,
+        "latitude": 50.47612,
+        "longitude": 12.370071,
+        "name": "fsn1",
+        "network_zone": "eu-central"
+      },
+      "name": "my-resource",
+      "outgoing_traffic": 1,
+      "private_net": [
+        {
+          "ip": "10.0.0.2",
+          "network": 4711
+        }
+      ],
+      "protection": {
+        "delete": false
+      },
+      "public_net": {
+        "enabled": false,
+        "ipv4": {
+          "blocked": false,
+          "dns_ptr": "lb1.example.com",
+          "id": 42,
+          "ip": "1.2.3.4"
+        },
+        "ipv6": {
+          "blocked": false,
+          "dns_ptr": "lb1.example.com",
+          "id": 42,
+          "ip": "2001:db8::1"
+        }
+      },
+      "services": [
+        {
+          "destination_port": 80,
+          "health_check": {
+            "http": {
+              "domain": "example.com",
+              "path": "/",
+              "response": "{\"status\": \"ok\"}",
+              "status_codes": ["2??", "3??"],
+              "tls": false
+            },
+            "interval": 15,
+            "port": 4711,
+            "protocol": "http",
+            "retries": 3,
+            "timeout": 10
+          },
+          "listen_port": 443,
+          "protocol": "tcp",
+          "proxyprotocol": false
+        }
+      ],
+      "targets": [
+        {
+          "health_status": [
+            {
+              "detail": "unexpected_http_status",
+              "http_status_code": 503,
+              "listen_port": 443,
+              "status": "healthy"
+            }
+          ],
+          "server": {
+            "id": 80,
+            "ip": "2001:db8::1"
+          },
+          "type": "server",
+          "use_private_ip": false
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "pagination": {
+      "last_page": 4,
+      "next_page": 4,
+      "page": 3,
+      "per_page": 25,
+      "previous_page": 2,
+      "total_entries": 100
+    }
+  }
+}

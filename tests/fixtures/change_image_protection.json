@@ -1,0 +1,21 @@
+{
+  "$source": "cloud.spec.json etag W/\"3614ad-1a17db8d838\" 2026-10-27",
+  "action": {
+    "command": "change_protection",
+    "error": {
+      "code": "action_failed",
+      "message": "Action failed"
+    },
+    "finished": "2016-01-30T23:56:00Z",
+    "id": 13,
+    "progress": 100,
+    "resources": [
+      {
+        "id": 4711,
+        "type": "image"
+      }
+    ],
+    "started": "2016-01-30T23:55:00Z",
+    "status": "success"
+  }
+}
