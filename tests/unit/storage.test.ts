@@ -212,6 +212,21 @@ describe("volume_create", () => {
     expect(textOf(res)).toBe("Created volume 42 (42 GB), attaching to server 7.");
   });
 
+  it.each(["fsn1\n", "fsn1\u202e"])(
+    "volume_create rejects location with control characters",
+    async (location) => {
+      const t = await start();
+      const res = await t.call("volume_create", {
+        name: "data",
+        size: 10,
+        location,
+        confirm: true,
+      });
+      expect(res.isError).toBe(true);
+      expect(t.fake.calls).toHaveLength(0);
+    },
+  );
+
   it.each([9, 10241, 10.5])("volume_create rejects size %s", async (size) => {
     const t = await start();
     const res = await t.call("volume_create", {

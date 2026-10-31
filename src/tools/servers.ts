@@ -740,6 +740,7 @@ const serverRebuild = defineTool({
   description:
     "Overwrites a server's disk with an image (a fresh system image, a snapshot or a backup), destroying all data on the server; the server is powered off first. Root passwords are never returned. Requires confirmation.",
   kind: "destructive",
+  idempotent: false,
   actions: true,
   input: z.object({
     id: serverIdField,

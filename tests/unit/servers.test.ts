@@ -457,6 +457,17 @@ describe("server_power_force annotations", () => {
   });
 });
 
+describe("server_rebuild annotations", () => {
+  it("server_rebuild is destructive and not idempotent", async () => {
+    const t = await start();
+    const a = (await t.client.listTools()).tools.find(
+      (x) => x.name === "server_rebuild",
+    )?.annotations;
+    expect(a?.destructiveHint).toBe(true);
+    expect(a?.idempotentHint).toBe(false);
+  });
+});
+
 describe("server_protection_set", () => {
   it("server_protection_set sends both flags together", async () => {
     const t = await start();
@@ -1205,7 +1216,7 @@ describe("server lifecycle annotations", () => {
     for (const name of ["server_delete", "server_rebuild", "server_change_type"]) {
       const tool = tools.find((x) => x.name === name);
       expect(tool?.annotations?.destructiveHint).toBe(true);
-      expect(tool?.annotations?.idempotentHint).toBe(true);
+      expect(tool?.annotations?.idempotentHint).toBe(name !== "server_rebuild");
       expect(tool?.inputSchema.properties).toHaveProperty("confirm");
       expect(tool?.inputSchema.properties).toHaveProperty("wait");
     }

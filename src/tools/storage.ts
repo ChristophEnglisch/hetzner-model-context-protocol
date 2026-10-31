@@ -315,6 +315,7 @@ const volumeCreate = defineTool({
       .string()
       .min(1)
       .max(64)
+      .refine((v) => !hasControlChars(v), "must not contain control characters")
       .optional()
       .describe(
         "Name of the location to create the volume in, e.g. 'fsn1' (see catalog_locations). Omit when server_id is given.",
